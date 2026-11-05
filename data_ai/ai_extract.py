@@ -10,10 +10,14 @@ api_key = os.getenv("GEMINI_API_KEY")
 client = genai.Client(api_key=api_key)
 
 # 사용할 모델 목록 (앞에서부터 차례로 시도해요)
-# list_models.py로 확인한 다른 모델 이름을 아래에 추가하세요. 따옴표와 쉼표 주의!
 MODEL_LIST = [
-    "gemini-3.8-flash",
-    # "여기에-다른-모델-이름",
+    "gemini-3.5-flash-lite",
+    "gemini-3.1-flash-lite",
+    "gemini-flash-lite-latest",
+    "gemini-3.5-flash",
+    "gemini-3.6-flash",
+    "gemini-3.7-flash",
+    "gemma-4-31b-it",
 ]
 
 # 테스트용 가짜 기사
@@ -33,36 +37,40 @@ prompt = f"""
 
 
 def ask_gemini(prompt):
-    """모델을 하나씩 바꿔 가며 성공할 때까지 시도해요. 성공하면 글을 돌려주고, 전부 실패하면 None."""
+    """모델을 하나씩 바꿔 가며 성공할 때까지 시도해요. 성공하면 (모델이름, 글)을 돌려주고, 전부 실패하면 None."""
     for model_name in MODEL_LIST:
-        for attempt in range(1, 4):  # 모델당 최대 3번
+        for attempt in range(1, 3):  # 모델당 최대 2번
             try:
                 print(f"[{model_name}] {attempt}번째 시도 중...")
                 response = client.models.generate_content(
                     model=model_name,
                     contents=prompt,
                 )
-                return response.text
+                return model_name, response.text
             except Exception as e:
                 message = str(e)
                 if "429" in message:
-                    print(f"[{model_name}] 오늘 사용 한도를 다 썼어요. 다음 모델로 넘어갈게요.")
-                    break  # 이 모델은 포기하고 다음 모델로
+                    print(f"[{model_name}] 사용 한도 초과. 다음 모델로 넘어갈게요.")
+                    break
                 elif "503" in message:
                     print(f"[{model_name}] 서버가 바빠요.")
-                    if attempt < 3:
-                        print("10초 뒤 다시 시도해요...")
-                        time.sleep(10)
+                    if attempt < 2:
+                        print("5초 뒤 다시 시도해요...")
+                        time.sleep(5)
+                elif "404" in message:
+                    print(f"[{model_name}] 이 모델은 쓸 수 없어요. 다음 모델로 넘어갈게요.")
+                    break
                 else:
-                    print(f"[{model_name}] 에러: {message}")
-                    break  # 다른 에러는 다음 모델로
+                    print(f"[{model_name}] 에러: {message[:200]}")
+                    break
     return None
 
 
 result = ask_gemini(prompt)
 
 if result:
-    print("\n=== 성공! AI 답변 ===")
-    print(result)
+    model_name, text = result
+    print(f"\n=== 성공! ({model_name}) ===")
+    print(text)
 else:
-    print("\n모든 모델이 실패했어요. 시간을 두고 다시 실행하거나, 오늘은 더미 데이터 작업부터 하세요.")
+    print("\n모든 모델이 실패했어요. 시간을 두고 다시 실행하거나, 더미 데이터로 작업하세요.")
