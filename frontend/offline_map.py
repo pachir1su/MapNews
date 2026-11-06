@@ -59,6 +59,7 @@ class Marker(QGraphicsEllipseItem):
                     action = menu.addAction(f"[{item.category}] {item.title}")
                     action.triggered.connect(lambda checked=False, key=item.id: self.view.selected.emit(key))
                 menu.exec(event.screenPos())
+                menu.deleteLater()
             event.accept()
         else:
             super().mousePressEvent(event)

@@ -214,6 +214,7 @@ def test_native_cluster_menu(window, qtbot):
     assert len(observed) == 2
     assert window.state.selected_id == 'duplicate'
     assert window.detail.item.title == duplicate.title
+    qtbot.waitUntil(lambda: not window.map.offline.findChildren(QMenu))
 
 
 def test_refresh_reconciles_selection_and_updated_details(window):

@@ -18,6 +18,15 @@ pytest 8.3.5, pytest-qt 4.4.0. Qt offscreen 플랫폼, 실제 QtWebEngine/Chromi
 | 원본 더미 파일 Git blob | `468f1c60da200e631a2ed74415a7cc735039a563`, PR #2와 일치 |
 | PR #2 브랜치와 merge-tree | 충돌 없음, 실제 병합은 수행하지 않음 |
 
+원격 CI: [run 42202741665](https://github.com/pachir1su/MapNews/actions/runs/42202741665),
+검증 커밋 `ab5c2422643a5ed99869ef0a3cdee985436c3d93`.
+**Ubuntu/Python 3.11 및 Windows/Python 3.12 모두 전체 테스트, HiDPI GUI, Ruff, compileall 통과**.
+각 OS의 화면 캡처와 JUnit XML은 해당 실행의 `frontend-review-*` artifact에 포함된다.
+후속 커밋의 결과는 PR checks에서 확인한다.
+
+PR #1과는 README 변경 영역이 겹친다. PR #1을 병합하지 않았으며, 두 PR을 함께 반영할 때는
+공식 제목과 확장된 실행 안내를 유지하는 방향으로 README 충돌을 정리하면 된다.
+
 WebEngine 테스트는 실제 Folium 문서를 로컬 Leaflet/MarkerCluster로 렌더링한다.
 마커 DOM 클릭 → QWebChannel → Python 신호, Python 선택 → JS 강조/팝업,
 악성 HTML 모양 문자열의 literal 표시를 확인했다. 인터넷 타일은 테스트에서 끈다.
