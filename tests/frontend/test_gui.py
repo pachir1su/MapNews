@@ -1,5 +1,6 @@
 from dataclasses import replace
 from pathlib import Path
+import os
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
 from frontend.models import NewsBatch
@@ -168,7 +169,7 @@ def test_map_failure_fallback(window):
 
 
 def test_capture_review_screenshots(window):
-    output = Path('test-artifacts')
+    output = Path(os.environ.get('MAPNEWS_ARTIFACT_DIR', 'test-artifacts'))
     output.mkdir(exist_ok=True)
     window.select_news('1')
     for dark in (False, True):
