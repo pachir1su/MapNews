@@ -28,6 +28,7 @@ class DetailPanel(QFrame):
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         content = QWidget()
+        content.setObjectName('detailContent')
         body = QVBoxLayout(content)
         body.setContentsMargins(0, 14, 0, 12)
         body.setSpacing(14)

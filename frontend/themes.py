@@ -29,6 +29,7 @@ def apply_theme(app, dark: bool):
     QFrame#panel, QWidget#panel { background: %(panel)s; border: 1px solid %(border)s;
                                border-radius: 12px; }
     QLabel { background: transparent; }
+    QWidget#detailContent { background: %(panel)s; }
     QLabel#brand { font-size: 23px; font-weight: 800; }
     QLabel#heading { font-size: 20px; font-weight: 700; }
     QLabel#muted { color: %(muted)s; }

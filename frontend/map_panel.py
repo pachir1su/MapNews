@@ -48,7 +48,7 @@ class MapPanel(QFrame):
         return self.web if self.mode.currentIndex() == 1 and self.web else self.offline
 
     def _caption(self):
-        self.caption.setText("오프라인 · 좌표 격자 화면 / 도로·행정경계 지도 아님 / 마커 클릭으로 기사 선택"
+        self.caption.setText("오프라인 · Natural Earth 저해상도 지도 / 도로 정보 없음 / 마커 클릭으로 기사 선택"
                              if self.mode.currentIndex() == 0 else
                              "온라인 · © OpenStreetMap contributors / 지도 타일·스크립트에 인터넷 필요")
 
@@ -70,7 +70,8 @@ class MapPanel(QFrame):
             from .web_map import WebMap
             self.web = WebMap(self)
             self.web.selected.connect(self.selected)
-            self.web.failed.connect(self._fallback)
+            current_web = self.web
+            self.web.failed.connect(lambda reason: self._fallback(reason) if self.web is current_web else None)
             self.stack.addWidget(self.web)
             self.stack.setCurrentWidget(self.web)
             self.web.set_items(self.rows)

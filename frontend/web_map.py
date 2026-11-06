@@ -4,6 +4,7 @@ from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineCore import (QWebEnginePage, QWebEngineProfile,
                                     QWebEngineSettings, QWebEngineUrlRequestInterceptor)
 from PySide6.QtWebEngineWidgets import QWebEngineView
+from PySide6.QtWidgets import QApplication
 from .map_html import build_map_html, js_call, marker_payload
 
 ALLOWED_HOSTS = {"tile.openstreetmap.org", "a.tile.openstreetmap.org",
@@ -71,14 +72,16 @@ class WebMap(QWebEngineView):
     def __init__(self, parent=None, *, online_tiles=True):
         super().__init__(parent)
         self.ready = False
+        self.stopped = False
         self.rows = []
         self.current_id = None
         self.dark = False
         self.pending_focus = False
-        self.profile = QWebEngineProfile(self)
+        self.profile = QWebEngineProfile(QApplication.instance())
         self.policy = RequestPolicy(self.profile)
         self.profile.setUrlRequestInterceptor(self.policy)
         self.map_page = MapPage(self.profile, self)
+        self.map_page.destroyed.connect(self.profile.deleteLater)
         self.setPage(self.map_page)
         self.settings().setAttribute(QWebEngineSettings.LocalContentCanAccessRemoteUrls, True)
         self.settings().setAttribute(QWebEngineSettings.LocalContentCanAccessFileUrls, False)
@@ -104,14 +107,17 @@ class WebMap(QWebEngineView):
 
     @Slot(str)
     def _html(self, html):
-        self.setHtml(html, QUrl("about:blank"))
+        if not self.stopped:
+            self.setHtml(html, QUrl("about:blank"))
 
     def _loaded(self, success):
-        if not success:
+        if not success and not self.stopped:
             self.failed.emit("지도 페이지 로딩 실패")
 
     @Slot()
     def _ready(self):
+        if self.stopped:
+            return
         self.ready = True
         self.timer.stop()
         self.set_items(self.rows)
@@ -143,7 +149,12 @@ class WebMap(QWebEngineView):
             self.page().runJavaScript("window.mapZoom(1);" if factor > 1 else "window.mapZoom(-1);")
 
     def shutdown(self):
+        if self.stopped:
+            return
+        self.stopped = True
+        self.ready = False
         self.timer.stop()
         self.stop()
         self.page().setWebChannel(None)
+        self.map_page.deleteLater()
         # Builder only renders a fixed small local template; parent stays alive until finished.

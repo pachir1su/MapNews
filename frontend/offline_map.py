@@ -1,7 +1,9 @@
 """Entirely native, network-free coordinate overview; not a street/boundary map."""
+import json
 import math
+from pathlib import Path
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QPainter, QPen
+from PySide6.QtGui import QBrush, QColor, QPainter, QPen, QPainterPath
 from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsScene, QGraphicsView, QMenu
 from .themes import tokens
 
@@ -71,11 +73,16 @@ class OfflineMap(QGraphicsView):
         self.setRenderHint(QPainter.Antialiasing)
         self.setDragMode(self.DragMode.ScrollHandDrag)
         self.setTransformationAnchor(self.ViewportAnchor.AnchorUnderMouse)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setFrameShape(self.Shape.NoFrame)
         self.setAccessibleName("오프라인 좌표 지도. 목록에서 기사를 선택하거나 마커를 클릭하세요.")
         self.setToolTip("휠: 확대·축소 / 드래그: 이동 / 여러 기사 마커: 기사 선택 메뉴")
         self.items, self.markers = [], []
         self.selected_id = None
         self.dark = False
+        self.land = json.loads((Path(__file__).parent / 'resources' / 'east_asia.geojson').read_text(
+            encoding='utf-8'))
         self._first_show = True
         self._background()
 
@@ -84,6 +91,21 @@ class OfflineMap(QGraphicsView):
         self.markers = []
         t = tokens(self.dark)
         self.setBackgroundBrush(QColor(t["map"]))
+        for feature in self.land['features']:
+            geometry = feature['geometry']
+            polygons = geometry['coordinates'] if geometry['type'] == 'MultiPolygon' else [geometry['coordinates']]
+            for polygon in polygons:
+                path = QPainterPath()
+                path.setFillRule(Qt.OddEvenFill)
+                for ring in polygon:
+                    path.moveTo(project(ring[0][1], ring[0][0]))
+                    for lon, lat in ring[1:]:
+                        path.lineTo(project(lat, lon))
+                    path.closeSubpath()
+                color = ('#253b50' if self.dark else '#ffffff') if feature['properties']['code'] == 'KOR' else (
+                    '#1b2b3d' if self.dark else '#dce6ef')
+                item = self.scene().addPath(path, QPen(QColor(t['grid']), 0), QBrush(QColor(color)))
+                item.setZValue(-2)
         # Deliberately a labeled coordinate grid, with no claimed geographical boundaries.
         for longitude in range(124, 132):
             a, b = project(32, longitude), project(40, longitude)

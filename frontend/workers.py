@@ -2,6 +2,7 @@
 from threading import Event
 from PySide6.QtCore import QThread, Signal
 from .providers import NewsProvider
+from .models import NewsBatch
 
 
 class LoadWorker(QThread):
@@ -16,6 +17,8 @@ class LoadWorker(QThread):
     def run(self):
         try:
             batch = self.provider.load(self.cancel)
+            if not isinstance(batch, NewsBatch):
+                raise TypeError('Provider.load must return NewsBatch')
             if not self.cancel.is_set():
                 self.loaded.emit(batch)
         except Exception as error:

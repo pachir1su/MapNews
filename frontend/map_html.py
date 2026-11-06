@@ -21,9 +21,11 @@ def js_call(function: str, value) -> str:
 
 
 def build_map_html(*, online_tiles: bool = True) -> str:
-    map_view = folium.Map(location=[36.0, 127.6], zoom_start=7,
+    map_view = folium.Map(location=[36.0, 127.6], zoom_start=7, max_zoom=19,
                           tiles="OpenStreetMap" if online_tiles else None,
                           control_scale=True, prefer_canvas=True)
+    # Folium's max_zoom argument configures tiles, not the tile-free map itself.
+    map_view.options['maxZoom'] = 19
     map_view.default_js = []
     map_view.default_css = []
     cluster = MarkerCluster(options={"maxClusterRadius": 48,

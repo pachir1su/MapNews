@@ -104,6 +104,7 @@ def parse_news(payload: object, *, is_mock: bool = False,
                 date = datetime.fromisoformat(date_text.replace("Z", "+00:00"))
                 date = date.replace(tzinfo=KST) if date.tzinfo is None else date.astimezone(KST)
             except (ValueError, OverflowError):
+                date = None
                 warnings.append(f"{identifier}: 작성 시각 형식 오류")
         category = text(row.get("category"), "미분류", 100)
         if category not in CATEGORIES:

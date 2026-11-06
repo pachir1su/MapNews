@@ -10,6 +10,7 @@
     window.mapReady = false;
 
     window.setNews = function (rows) {
+        map.closePopup();
         cluster.clearLayers();
         markers.clear();
         rows.forEach(function (row) {
@@ -45,6 +46,7 @@
         const marker = markers.get(selected);
         if (marker && value.focus) {
             cluster.zoomToShowLayer(marker, function () {
+                if (markers.get(selected) !== marker) return;
                 marker.openPopup();
                 const el = marker.getElement();
                 if (el) el.classList.add("news-selected");

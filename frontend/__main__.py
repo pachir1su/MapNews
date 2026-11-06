@@ -1,7 +1,7 @@
 """Run: python -m frontend [--json FILE] [--mock-json] [--online] [--dark]."""
 import argparse
 import sys
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QCoreApplication, Qt
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QApplication
 from .main_window import MainWindow
@@ -18,6 +18,7 @@ def main():
     if args.mock_json and not args.json:
         parser.error("--mock-json은 --json과 함께 사용하세요.")
     QGuiApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
+    QCoreApplication.setAttribute(Qt.AA_ShareOpenGLContexts)
     app = QApplication(sys.argv[:1])
     app.setApplicationName("MapNews")
     app.setStyle("Fusion")
