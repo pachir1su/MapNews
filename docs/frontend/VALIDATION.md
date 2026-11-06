@@ -1,6 +1,6 @@
 # 검증 기록
 
-검증일: 2026-11-06 KST. 이 문서는 실측 결과와 미검증 범위를 구분한다.
+검증일: 2026-11-07 KST. 이 문서는 실측 결과와 미검증 범위를 구분한다.
 
 ## 로컬 실행 결과
 
@@ -10,15 +10,15 @@ pytest 8.3.5, pytest-qt 4.4.0. Qt offscreen 플랫폼, 실제 QtWebEngine/Chromi
 
 | 검증 | 결과 |
 |---|---|
-| 전체 pytest | **61 passed** (5.08초), 경고 없음 |
-| QT_SCALE_FACTOR=1.5 GUI 테스트 | **20 passed** (4.33초) |
+| 전체 pytest | **77 passed** (8.29초), 경고 없음 |
+| QT_SCALE_FACTOR=1.5 GUI 테스트 | **33 passed** (6.84초) |
 | Ruff | 통과 |
 | Python compileall | 통과 |
 | JavaScript node --check | 통과 |
 | 원본 더미 파일 Git blob | `468f1c60da200e631a2ed74415a7cc735039a563`, PR #2와 일치 |
 | PR #2 브랜치와 merge-tree | 충돌 없음, 실제 병합은 수행하지 않음 |
 
-원격 CI: [run 42202741665](https://github.com/pachir1su/MapNews/actions/runs/42202741665),
+기존 기준선(61개 + HiDPI 20개)의 원격 CI: [run 42202741665](https://github.com/pachir1su/MapNews/actions/runs/42202741665),
 검증 커밋 `ab5c2422643a5ed99869ef0a3cdee985436c3d93`.
 **Ubuntu/Python 3.11 및 Windows/Python 3.12 모두 전체 테스트, HiDPI GUI, Ruff, compileall 통과**.
 각 OS의 화면 캡처와 JUnit XML은 해당 실행의 `frontend-review-*` artifact에 포함된다.
@@ -70,3 +70,17 @@ Mock는 오프라인 native 지도만 생성하며 네트워크 브라우저를 
 - Windows/Linux 원격 검증은 `.github/workflows/frontend.yml` 실행 결과를 따른다.
 - 백엔드 API·크롤러·Gemini·SQLite 연결은 이번 범위가 아니며 통합 완료로 주장하지 않는다.
 - 지역 대표 좌표는 시연용이다. 실제 사건 위치의 정확도를 검증한 결과가 아니다.
+
+## 2026-11-07 추가 검증
+
+- 손상·누락·형식 오류 지도 자원에서 좌표 격자로 복구하고 20건 목록·선택 유지
+- 1,000건 동일 위치 군집을 검색 가능한 가상화 목록으로 탐색/선택
+- 군집 검색의 빈 결과, 필터 변경 시 오래된 선택 창 폐기
+- 기사 선택 시 기존 마커 객체 재사용 및 강조 변경
+- 한국 밖 유효 좌표까지 지도 범위 확장, 결과 맞춤 및 빈 결과 처리
+- 로딩 중 GUI 타이머가 계속 동작, 취소 후 기존 기사/선택 보존, 최초 로딩 취소 후 데모 복구
+- 실제 WebEngine 모드 3회 반복 생성/종료 후 page/profile 해제
+- 지도 생성 작업 중 창 닫기, 결과 맞춤 후 연속 기사 선택의 최종 popup 검증
+
+10,000건 데이터를 합성해 로딩·검색·선택도 실행했다. 기사 선택은 마커 전체 재생성을 제거했다.
+측정 시간은 하드웨어와 렌더링 상태에 좌우되므로 성능 보증 기준으로 사용하지 않는다.

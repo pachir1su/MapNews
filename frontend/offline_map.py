@@ -1,11 +1,10 @@
 """Entirely native, network-free coordinate overview; not a street/boundary map."""
-import json
 import math
-from pathlib import Path
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QPainter, QPen, QPainterPath
 from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsScene, QGraphicsView, QMenu
 from .themes import tokens
+from .map_data import load_outlines
 
 
 def project(latitude: float, longitude: float) -> QPointF:
@@ -35,8 +34,11 @@ class Marker(QGraphicsEllipseItem):
         self.setZValue(10)
         self.setCursor(Qt.PointingHandCursor)
         self.setToolTip("\n".join(f"{n.category} · {n.title}" for n in items[:12]))
-        selected = any(n.id == view.selected_id for n in items)
         self.setBrush(QBrush(QColor(items[0].color if len(items) == 1 else "#577ca7")))
+        self.update_selection()
+
+    def update_selection(self):
+        selected = any(n.id == self.view.selected_id for n in self.items)
         self.setPen(QPen(QColor("#ffb36b" if selected else "#ffffff"), 4 if selected else 2))
 
     def paint(self, painter, option, widget=None):
@@ -54,12 +56,7 @@ class Marker(QGraphicsEllipseItem):
             if len(self.items) == 1:
                 self.view.selected.emit(self.items[0].id)
             else:
-                menu = QMenu(self.view)
-                for item in self.items:
-                    action = menu.addAction(f"[{item.category}] {item.title}")
-                    action.triggered.connect(lambda checked=False, key=item.id: self.view.selected.emit(key))
-                menu.exec(event.screenPos())
-                menu.deleteLater()
+                self.view.open_cluster(self.items, event.screenPos())
             event.accept()
         else:
             super().mousePressEvent(event)
@@ -80,10 +77,11 @@ class OfflineMap(QGraphicsView):
         self.setAccessibleName("오프라인 좌표 지도. 목록에서 기사를 선택하거나 마커를 클릭하세요.")
         self.setToolTip("휠: 확대·축소 / 드래그: 이동 / 여러 기사 마커: 기사 선택 메뉴")
         self.items, self.markers = [], []
+        self.item_by_id, self.marker_by_id = {}, {}
+        self.cluster_picker = None
         self.selected_id = None
         self.dark = False
-        self.land = json.loads((Path(__file__).parent / 'resources' / 'east_asia.geojson').read_text(
-            encoding='utf-8'))
+        self.outlines, self.resource_error = load_outlines()
         self._first_show = True
         self._background()
 
@@ -92,10 +90,8 @@ class OfflineMap(QGraphicsView):
         self.markers = []
         t = tokens(self.dark)
         self.setBackgroundBrush(QColor(t["map"]))
-        for feature in self.land['features']:
-            geometry = feature['geometry']
-            polygons = geometry['coordinates'] if geometry['type'] == 'MultiPolygon' else [geometry['coordinates']]
-            for polygon in polygons:
+        for feature in self.outlines:
+            for polygon in feature['polygons']:
                 path = QPainterPath()
                 path.setFillRule(Qt.OddEvenFill)
                 for ring in polygon:
@@ -103,11 +99,11 @@ class OfflineMap(QGraphicsView):
                     for lon, lat in ring[1:]:
                         path.lineTo(project(lat, lon))
                     path.closeSubpath()
-                color = ('#253b50' if self.dark else '#ffffff') if feature['properties']['code'] == 'KOR' else (
+                color = ('#253b50' if self.dark else '#ffffff') if feature['code'] == 'KOR' else (
                     '#1b2b3d' if self.dark else '#dce6ef')
                 item = self.scene().addPath(path, QPen(QColor(t['grid']), 0), QBrush(QColor(color)))
                 item.setZValue(-2)
-        # Deliberately a labeled coordinate grid, with no claimed geographical boundaries.
+        # The coordinate grid stays usable when the optional outline resource fails.
         for longitude in range(124, 132):
             a, b = project(32, longitude), project(40, longitude)
             self.scene().addLine(a.x(), a.y(), b.x(), b.y(), QPen(QColor(t["grid"]), 0))
@@ -128,33 +124,92 @@ class OfflineMap(QGraphicsView):
             note.setBrush(QColor(t["muted"]))
             note.setPos(project(lat, lon) + QPointF(14, 9))
             note.setFlag(note.GraphicsItemFlag.ItemIgnoresTransformations)
-        self.setSceneRect(QRectF(project(42, 120), project(28, 136)))
+        self._update_scene_bounds()
         self._draw_markers()
 
     def set_theme(self, dark):
         self.dark = dark
         self._background()
+        if self.cluster_picker:
+            self.cluster_picker.delegate.dark = dark
+            self.cluster_picker.news.viewport().update()
 
     def set_items(self, items):
+        self.close_picker()
         self.items = list(items)
+        self.item_by_id = {item.id: item for item in self.items}
+        self._update_scene_bounds()
         self._draw_markers()
+
+    def _update_scene_bounds(self):
+        bounds = QRectF(project(42, 120), project(28, 136))
+        located = [item for item in self.items if item.has_coordinates]
+        if located:
+            top_left = project(max(n.latitude for n in located), min(n.longitude for n in located))
+            bottom_right = project(min(n.latitude for n in located), max(n.longitude for n in located))
+            bounds = bounds.united(QRectF(top_left, bottom_right).adjusted(-30, -30, 30, 30))
+        self.setSceneRect(bounds)
 
     def _draw_markers(self):
         for marker in self.markers:
             self.scene().removeItem(marker)
         self.markers = []
+        self.marker_by_id = {}
         for group in cluster_points(self.items, self.transform().m11()):
             marker = Marker(self, group)
             self.scene().addItem(marker)
             self.markers.append(marker)
+            for item in group:
+                self.marker_by_id[item.id] = marker
 
     def set_selected(self, identifier, focus=False):
+        previous = self.marker_by_id.get(self.selected_id)
         self.selected_id = identifier
         if focus:
-            item = next((n for n in self.items if n.id == identifier and n.has_coordinates), None)
-            if item:
+            item = self.item_by_id.get(identifier)
+            if item and item.has_coordinates:
                 self.centerOn(project(item.latitude, item.longitude))
+        if previous:
+            previous.update_selection()
+        current = self.marker_by_id.get(identifier)
+        if current and current is not previous:
+            current.update_selection()
+
+    def fit_results(self):
+        points = [project(n.latitude, n.longitude) for n in self.items if n.has_coordinates]
+        if not points:
+            return
+        left, right = min(p.x() for p in points), max(p.x() for p in points)
+        top, bottom = min(p.y() for p in points), max(p.y() for p in points)
+        self.fitInView(QRectF(left - 12, top - 12, right - left + 24, bottom - top + 24),
+                       Qt.KeepAspectRatio)
         self._draw_markers()
+
+    def open_cluster(self, items, screen_position):
+        if len(items) <= 12:
+            menu = QMenu(self)
+            for item in items:
+                action = menu.addAction(f'[{item.category}] {item.title}')
+                action.triggered.connect(lambda checked=False, key=item.id: self.selected.emit(key))
+            menu.exec(screen_position)
+            menu.deleteLater()
+            return
+        from .cluster_dialog import ClusterDialog
+        self.close_picker()
+        picker = ClusterDialog(items, dark=self.dark, parent=self)
+        self.cluster_picker = picker
+        picker.selected.connect(self.selected)
+        picker.destroyed.connect(lambda: self._picker_closed(picker))
+        picker.show()
+
+    def _picker_closed(self, picker):
+        if self.cluster_picker is picker:
+            self.cluster_picker = None
+
+    def close_picker(self):
+        if self.cluster_picker:
+            self.cluster_picker.close()
+            self.cluster_picker = None
 
     def home(self):
         self.fitInView(QRectF(project(38.7, 124.8), project(32.9, 130.2)), Qt.KeepAspectRatio)

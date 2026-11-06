@@ -60,6 +60,12 @@
         document.body.classList.toggle("map-dark", dark);
     };
     window.mapHome = function () { map.setView([36.0, 127.6], 7); };
+    window.fitNews = function () {
+        if (markers.size) {
+            const bounds = L.latLngBounds(Array.from(markers.values()).map(marker => marker.getLatLng()));
+            map.fitBounds(bounds, {padding: [35, 35], maxZoom: 12});
+        }
+    };
     window.mapZoom = function (delta) { map.setZoom(map.getZoom() + delta); };
     map.eachLayer(function (layer) {
         if (layer instanceof L.TileLayer) {

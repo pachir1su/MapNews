@@ -7,6 +7,7 @@
 | Qt platform plugin xcb 오류 | Linux 시스템 라이브러리 설치. 화면 없는 테스트에서는 QT_QPA_PLATFORM=offscreen |
 | libXtst / libxkbfile 누락 | Linux에서 libxtst6, libxkbfile1 설치. 오프라인 기본 화면은 WebEngine 없이도 동작 |
 | 한글이 네모로 표시 | Linux에 fonts-noto-cjk 설치. Windows에서는 맑은 고딕 사용 |
+| 지형 자원 없음 표시 | 번들 GeoJSON 누락/손상. 좌표 격자에서 마커 탐색은 계속 가능 |
 | 지도 타일이 비어 있음 | 인터넷 또는 타일 서버 연결 실패. 오프라인으로 자동 전환되며 드롭다운으로도 전환 가능 |
 | 기사 목록은 있지만 마커 없음 | latitude/longitude 누락 또는 잘못된 범위. 좌표 없는 외부 데이터는 임의 위치 추정하지 않음 |
 | 0건 검색 결과 | 카테고리를 모두 해제했거나 지역/키워드 조건이 맞지 않음. 초기화 선택 |

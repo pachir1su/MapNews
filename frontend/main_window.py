@@ -3,7 +3,7 @@ from PySide6.QtCore import QSettings, QThread, QTimer, Qt, Slot
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (QApplication, QComboBox, QDialog, QFileDialog, QFrame,
                                QHBoxLayout, QListView, QMainWindow, QPushButton,
-                               QLineEdit, QSplitter, QVBoxLayout, QWidget)
+                               QLineEdit, QProgressBar, QSplitter, QVBoxLayout, QWidget)
 from .detail import DetailPanel, label
 from .map_panel import MapPanel
 from .models import CATEGORIES, NewsBatch
@@ -78,6 +78,18 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(root)
         self.statusBar().setSizeGripEnabled(True)
         self.statusBar().showMessage("준비")
+        self.loading_progress = QProgressBar()
+        self.loading_progress.setRange(0, 0)
+        self.loading_progress.setFixedWidth(90)
+        self.loading_progress.setMaximumHeight(12)
+        self.loading_progress.setAccessibleName('뉴스 로딩 중')
+        self.cancel_button = QPushButton('로딩 취소')
+        self.cancel_button.setToolTip('현재 로딩을 취소합니다. 기존 뉴스는 유지합니다.')
+        self.cancel_button.clicked.connect(self.cancel_load)
+        self.statusBar().addPermanentWidget(self.loading_progress)
+        self.statusBar().addPermanentWidget(self.cancel_button)
+        self.loading_progress.hide()
+        self.cancel_button.hide()
         self.detail_dialog = QDialog(self)
         self.detail_dialog.setWindowTitle("MapNews · 기사 상세")
         self.detail_dialog.resize(440, 630)
@@ -181,6 +193,10 @@ class MainWindow(QMainWindow):
         self.refresh_button.setEnabled(False)
         self.import_button.setEnabled(False)
         self.demo_button.setEnabled(False)
+        self.loading_progress.show()
+        self.cancel_button.setText('로딩 취소')
+        self.cancel_button.setEnabled(True)
+        self.cancel_button.show()
         self.statusBar().showMessage("데이터 로딩 중… 기존 기사는 계속 탐색할 수 있습니다.")
         self.worker = LoadWorker(self.provider, self)
         self.worker.loaded.connect(self._loaded)
@@ -190,7 +206,7 @@ class MainWindow(QMainWindow):
 
     @Slot(object)
     def _loaded(self, batch: NewsBatch):
-        if self.closing:
+        if self.closing or (self.worker and self.worker.cancel.is_set()):
             return
         self.batch = batch
         self.state.items = batch.items
@@ -216,7 +232,7 @@ class MainWindow(QMainWindow):
 
     @Slot(str)
     def _failed(self, message):
-        if self.closing:
+        if self.closing or (self.worker and self.worker.cancel.is_set()):
             return
         self.banner.setText(message + (" 기존 데이터는 유지합니다." if self.batch else ""))
         self.banner.show()
@@ -227,11 +243,28 @@ class MainWindow(QMainWindow):
             self.empty.show()
 
     def _load_finished(self):
+        self.loading_progress.hide()
+        self.cancel_button.hide()
         self.refresh_button.setEnabled(True)
         self.import_button.setEnabled(True)
         self.demo_button.setEnabled(True)
         if self.closing:
             QTimer.singleShot(0, self.close)
+        elif self.worker and self.worker.cancel.is_set():
+            self.statusBar().showMessage('로딩을 취소했습니다. 기존 뉴스는 유지합니다.')
+            if not self.batch:
+                self.source_label.setText('데이터 없음')
+                self.news.hide()
+                self.empty.setText('로딩을 취소했습니다.\n새로고침 또는 데모를 선택하세요.')
+                self.empty.show()
+
+    @Slot()
+    def cancel_load(self):
+        if self.worker and self.worker.isRunning():
+            self.worker.cancel.set()
+            self.cancel_button.setEnabled(False)
+            self.cancel_button.setText('취소 중…')
+            self.statusBar().showMessage('로딩 취소 요청을 전달했습니다. 작업 정리를 기다립니다…')
 
     def _search_changed(self):
         self.statusBar().showMessage("검색 중…")

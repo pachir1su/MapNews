@@ -94,3 +94,20 @@ def test_html_in_news_is_literal(web, qtbot):
     assert result['hacked'] is False
     assert result['images'] == 0
     assert result['text'] == item.title
+
+
+@pytest.mark.webengine
+def test_fit_results_and_rapid_selection(web, qtbot):
+    items = MockNewsProvider().load(Event()).items
+    web.set_items([items[5], items[13]])
+    web.fit_results()
+    script = """Array.from(document.querySelectorAll('.leaflet-marker-icon')).filter(el => {
+        const r = el.getBoundingClientRect();
+        return r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight;
+    }).length"""
+    qtbot.waitUntil(lambda: evaluate(qtbot, web, script) == 2, timeout=10000)
+    web.set_selected(items[5].id, focus=True)
+    web.set_selected(items[13].id, focus=True)
+    qtbot.waitUntil(lambda: evaluate(qtbot, web,
+        "document.querySelector('.leaflet-popup-content strong')?.textContent") == items[13].title,
+        timeout=10000)

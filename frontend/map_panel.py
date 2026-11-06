@@ -1,4 +1,4 @@
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import QComboBox, QFrame, QHBoxLayout, QPushButton, QStackedWidget, QVBoxLayout
 from .detail import label
 from .offline_map import OfflineMap
@@ -26,9 +26,11 @@ class MapPanel(QFrame):
         toolbar.addWidget(self.mode)
         for title, handler in (("−", lambda: self.active.zoom(0.8)),
                                ("+", lambda: self.active.zoom(1.25)),
+                               ("결과", lambda: self.active.fit_results()),
                                ("전국", lambda: self.active.home())):
             button = QPushButton(title)
-            button.setToolTip({"−": "축소", "+": "확대", "전국": "초기 위치로 이동"}[title])
+            button.setToolTip({"−": "축소", "+": "확대", "결과": "검색 결과 전체를 지도에 맞춤",
+                               "전국": "초기 위치로 이동"}[title])
             button.setAccessibleName(button.toolTip())
             button.clicked.connect(handler)
             toolbar.addWidget(button)
@@ -42,15 +44,19 @@ class MapPanel(QFrame):
         layout.addWidget(self.caption)
         self.mode.currentIndexChanged.connect(self._mode_changed)
         self._caption()
+        if self.offline.resource_error:
+            QTimer.singleShot(0, lambda: self.notice.emit(self.offline.resource_error))
 
     @property
     def active(self):
         return self.web if self.mode.currentIndex() == 1 and self.web else self.offline
 
     def _caption(self):
-        self.caption.setText("오프라인 · Natural Earth 저해상도 지도 / 도로 정보 없음 / 마커 클릭으로 기사 선택"
+        offline_caption = ("오프라인 좌표 격자 · 지형 자원 없음 / 마커 탐색 가능" if self.offline.resource_error else
+                           "오프라인 · Natural Earth 저해상도 지도 / 도로 정보 없음 / 마커 클릭으로 기사 선택")
+        self.caption.setText(offline_caption
                              if self.mode.currentIndex() == 0 else
-                             "온라인 · © OpenStreetMap contributors / 지도 타일·스크립트에 인터넷 필요")
+                             "온라인 · © OpenStreetMap contributors / 지도 타일에 인터넷 필요")
 
     def _mode_changed(self, index):
         self._caption()
@@ -104,4 +110,5 @@ class MapPanel(QFrame):
             self.web.set_theme(dark)
 
     def shutdown(self):
+        self.offline.close_picker()
         self.mode.setCurrentIndex(0)

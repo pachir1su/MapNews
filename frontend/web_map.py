@@ -148,6 +148,10 @@ class WebMap(QWebEngineView):
         if self.ready:
             self.page().runJavaScript("window.mapZoom(1);" if factor > 1 else "window.mapZoom(-1);")
 
+    def fit_results(self):
+        if self.ready:
+            self.page().runJavaScript('window.fitNews();')
+
     def shutdown(self):
         if self.stopped:
             return

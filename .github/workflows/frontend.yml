@@ -44,7 +44,7 @@ jobs:
         env:
           QT_SCALE_FACTOR: '1.5'
           MAPNEWS_ARTIFACT_DIR: test-artifacts/hidpi
-        run: python -m pytest tests/frontend/test_gui.py -q --junitxml=test-artifacts/hidpi.xml
+        run: python -m pytest tests/frontend/test_gui.py tests/frontend/test_resilience.py -m 'not webengine' -q --junitxml=test-artifacts/hidpi.xml
       - uses: actions/upload-artifact@v4
         if: always()
         with:
