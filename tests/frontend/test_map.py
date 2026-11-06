@@ -36,6 +36,14 @@ def test_online_map_has_osm_attribution():
     assert 'OpenStreetMap' in html
 
 
+def test_boundary_assets_fit_webengine_html_limit():
+    from urllib.parse import quote
+    html = build_map_html()
+    # QWebEngineView.setHtml uses an encoded data URL with a Chromium 2 MiB limit.
+    assert len(quote(html, safe='')) + 100 < 2 * 1024 * 1024
+    assert '__ADM1__' not in html and '__ADM2__' not in html
+
+
 @pytest.fixture
 def web(qtbot):
     from frontend.web_map import WebMap
@@ -111,3 +119,22 @@ def test_fit_results_and_rapid_selection(web, qtbot):
     qtbot.waitUntil(lambda: evaluate(qtbot, web,
         "document.querySelector('.leaflet-popup-content strong')?.textContent") == items[13].title,
         timeout=10000)
+
+
+@pytest.mark.webengine
+def test_boundaries_follow_zoom_and_system_colors(web, qtbot):
+    # Exercise the real Leaflet layers, not merely generated source strings.
+    def ev(script):
+        return evaluate(qtbot, web, script)
+
+    ev("window.testMap = window[Object.keys(window).find(k => k.startsWith('map_') && window[k] instanceof L.Map)]; true;")
+    count = "Object.values(testMap._layers).filter(l => l.options?.className === '%s-boundary').length"
+    assert ev(count % 'province') == 16
+    assert ev(count % 'district') == 0
+    ev('testMap.setZoom(10, {animate: false}); true;')
+    qtbot.waitUntil(lambda: ev(count % 'district') == 256)
+    web.set_theme(True)
+    qtbot.waitUntil(lambda: ev("document.body.classList.contains('map-dark')") is True)
+    assert ev("Object.values(testMap._layers).find(l => l.options?.className === 'province-boundary').options.color") == '#afc4df'
+    ev('window.mapHome(); true;')
+    qtbot.waitUntil(lambda: ev(count % 'district') == 0)

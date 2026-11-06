@@ -31,7 +31,7 @@ def test_missing_map_data_keeps_main_window_working(qtbot, monkeypatch, tmp_path
     qtbot.waitUntil(lambda: window.batch is not None)
     assert window.model.rowCount() == 20
     assert window.map.offline.resource_error
-    assert '좌표 격자' in window.map.caption.text()
+    assert '좌표 격자' in window.map.offline.resource_error
     window.select_news('1')
     assert window.detail.item.id == '1'
     assert window.map.offline.marker_by_id['1']
@@ -128,7 +128,7 @@ def test_user_cancellation_preserves_selection_and_ui_responsiveness(window, qtb
     assert window.batch is old
     assert window.state.selected_id == '1'
     assert window.model.rowCount() == 20
-    assert '취소' in window.statusBar().currentMessage()
+    assert '취소' in window.banner.text()
     assert window.refresh_button.isEnabled()
 
 

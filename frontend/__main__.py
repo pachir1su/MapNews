@@ -1,4 +1,4 @@
-"""Run: python -m frontend [--json FILE] [--mock-json] [--online] [--dark]."""
+"""Run: python -m frontend [--json FILE] [--mock-json] [--online]."""
 import argparse
 import sys
 from PySide6.QtCore import QCoreApplication, Qt
@@ -13,7 +13,6 @@ def main():
     parser.add_argument("--json", metavar="FILE", help="PR #2 형식 JSON을 읽기 전용으로 불러오기")
     parser.add_argument("--mock-json", action="store_true", help="외부 JSON도 시연 데이터로 명시")
     parser.add_argument("--online", action="store_true", help="인터넷이 필요한 Folium 지도로 시작")
-    parser.add_argument("--dark", action="store_true", help="다크 테마로 시작")
     args = parser.parse_args()
     if args.mock_json and not args.json:
         parser.error("--mock-json은 --json과 함께 사용하세요.")
@@ -26,8 +25,6 @@ def main():
     window = MainWindow(provider)
     available = app.primaryScreen().availableGeometry()
     window.resize(min(1500, available.width()), min(900, available.height()))
-    if args.dark and not window.dark:
-        window.toggle_theme()
     window.show()
     if args.online:
         window.map.mode.setCurrentIndex(1)

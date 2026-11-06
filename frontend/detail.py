@@ -23,31 +23,30 @@ class DetailPanel(QFrame):
         self.setObjectName("panel")
         self.item = None
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(18, 18, 18, 18)
-        layout.addWidget(label("기사 상세", "heading"))
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.addWidget(label("선택한 뉴스", "muted"))
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         content = QWidget()
         content.setObjectName('detailContent')
         body = QVBoxLayout(content)
-        body.setContentsMargins(0, 14, 0, 12)
-        body.setSpacing(14)
+        body.setContentsMargins(0, 24, 0, 12)
+        body.setSpacing(20)
         self.badge = label("", "badge", True)
-        self.title = label("목록이나 지도에서\n뉴스를 선택하세요", "heading", True)
+        self.title = label("목록이나 지도에서\n뉴스를 선택하세요", "articleTitle", True)
         self.meta = label("", "muted", True)
-        self.summary = label("", "", True)
+        self.summary = label("", "summary", True)
         self.summary.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
-        self.note = label("", "muted", True)
-        self.link = label("", "muted", True)
-        for widget in (self.badge, self.title, self.meta, label("AI 요약", "badge"),
-                       self.summary, self.note, self.link):
+        for widget in (self.badge, self.title, self.meta, label("핵심 요약", "muted"),
+                       self.summary):
             body.addWidget(widget)
         body.addStretch()
         self.scroll.setWidget(content)
         layout.addWidget(self.scroll, 1)
         self.locate_button = QPushButton("지도에서 위치 확인")
-        self.locate_button.setObjectName("primary")
-        self.open_button = QPushButton("기사 원문 열기 ↗")
+        self.locate_button.setObjectName("quiet")
+        self.open_button = QPushButton("원문 읽기")
+        self.open_button.setObjectName("primary")
         self.locate_button.clicked.connect(self._locate)
         self.open_button.clicked.connect(self._open)
         layout.addWidget(self.locate_button)
@@ -56,20 +55,18 @@ class DetailPanel(QFrame):
 
     def set_item(self, item: NewsItem | None):
         self.item = item
-        self.badge.setText(f"{item.category}  /  {'MOCK · 가상 기사' if item.is_mock else '외부 제공 데이터'}"
+        self.badge.setText(f"{item.category}  /  {'데모' if item.is_mock else '뉴스'}"
                            if item else "")
         self.title.setText(item.title if item else "목록이나 지도에서\n뉴스를 선택하세요")
         self.meta.setText(f"{item.location}\n{item.date_label} KST" if item else "")
         self.summary.setText(item.summary if item else "선택한 기사의 요약과 위치를 여기서 확인합니다.")
-        self.note.setText((item.coordinate_note or
-                           ("제공된 좌표" if item.has_coordinates else "좌표 미제공 · 지도 표시 불가"))
-                          if item else "")
-        self.link.setText(item.url if item else "")
+        self.meta.setToolTip(item.coordinate_note if item else "")
+        self.locate_button.setToolTip(item.coordinate_note if item else "")
         self.locate_button.setEnabled(bool(item and item.has_coordinates))
         # Mock example.com links are placeholders, not genuine news.
         self.open_button.setEnabled(bool(item and safe_url(item.url) and not item.is_mock))
         self.open_button.setToolTip("시연 기사는 실제 원문이 없습니다." if item and item.is_mock
-                                   else "검증된 HTTP(S) 주소를 기본 브라우저에서 엽니다.")
+                                   else (item.url if item and item.url else "원문 주소가 없어요."))
         self.scroll.verticalScrollBar().setValue(0)
 
     def _locate(self):

@@ -1,9 +1,12 @@
 """Folium page with pinned local Leaflet assets. Only online map tiles use network."""
+import base64
+import gzip
 import json
 from pathlib import Path
 import folium
 from folium.plugins import MarkerCluster
 from branca.element import Element, MacroElement, Template
+from .map_data import load_boundaries, boundary_geojson
 
 RESOURCES = Path(__file__).parent / "resources"
 
@@ -53,13 +56,18 @@ def build_map_html(*, online_tiles: bool = True) -> str:
       height:26px!important; color:white; font:bold 12px sans-serif;
       display:flex; align-items:center; justify-content:center;
       box-shadow:0 2px 9px #17253d55; }
-    .news-selected { outline:4px solid #ffb36b; outline-offset:3px; }
+    .news-selected { outline:4px solid #3182f6; outline-offset:3px; }
     .map-dark .leaflet-tile-pane { filter:brightness(.65) saturate(.65); }
     .leaflet-popup-content { font:14px sans-serif; max-width:280px; }
     </style>
     """))
     script = (RESOURCES / "map.js").read_text(encoding="utf-8")
     script = script.replace("__MAP__", map_view.get_name()).replace("__CLUSTER__", cluster.get_name())
+    levels, _ = load_boundaries()
+    for level in ('adm1', 'adm2'):
+        payload = json.dumps(boundary_geojson(levels[level]), ensure_ascii=True, separators=(',', ':'))
+        encoded = base64.b64encode(gzip.compress(payload.encode(), mtime=0)).decode('ascii')
+        script = script.replace('__' + level.upper() + '__', encoded)
     # MacroElement renders after the map and cluster. Root.script would run too early.
     bridge = MacroElement()
     bridge._template = Template("{% macro script(this, kwargs) %}" + script + "{% endmacro %}")

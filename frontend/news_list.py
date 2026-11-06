@@ -39,7 +39,7 @@ class NewsDelegate(QStyledItemDelegate):
         self.dark = False
 
     def sizeHint(self, option, index):
-        return QSize(300, 132)
+        return QSize(300, 144)
 
     def paint(self, painter, option, index):
         item = index.data(ITEM_ROLE)
@@ -48,27 +48,27 @@ class NewsDelegate(QStyledItemDelegate):
         t = tokens(self.dark)
         painter.save()
         painter.setRenderHint(painter.RenderHint.Antialiasing)
-        box = option.rect.adjusted(5, 4, -5, -4)
+        box = option.rect.adjusted(0, 4, 0, -4)
         selected = bool(option.state & QStyle.State_Selected)
         painter.setBrush(QColor(t["selected"] if selected else t["panel"]))
-        painter.setPen(QPen(QColor(t["accent"] if selected else t["border"]), 1))
-        painter.drawRoundedRect(box, 9, 9)
-        x, y, w = box.x() + 14, box.y() + 11, box.width() - 28
+        painter.setPen(Qt.NoPen)
+        painter.drawRoundedRect(box, 12, 12)
+        x, y, w = box.x() + 14, box.y() + 15, box.width() - 28
         font = QFont(option.font)
-        font.setPointSize(9)
+        font.setPixelSize(12)
         font.setBold(True)
         painter.setFont(font)
-        painter.setPen(QColor(item.color))
+        painter.setPen(QColor(t["accent"] if selected else t["muted"]))
         painter.drawText(QRect(x, y, w, 19), Qt.AlignLeft, item.category)
         painter.setPen(QColor(t["muted"]))
         date = item.date_label[5:] if item.published_at else "시각 미제공"
         painter.drawText(QRect(x, y, w, 19), Qt.AlignRight, date)
-        font.setPointSize(11)
+        font.setPixelSize(15)
         painter.setFont(font)
         painter.setPen(QColor(t["text"]))
         painter.drawText(QRect(x, y + 27, w, 23), Qt.AlignLeft,
                          painter.fontMetrics().elidedText(item.title, Qt.ElideRight, w))
-        font.setPointSize(9)
+        font.setPixelSize(12)
         font.setBold(False)
         painter.setFont(font)
         painter.setPen(QColor(t["muted"]))

@@ -34,13 +34,12 @@ libxkbcommon-x11-0 fonts-noto-cjk` 패키지가 필요할 수 있습니다. macO
 
 ```bash
 python -m frontend                               # 오프라인 Mock 20건
-python -m frontend --dark                        # 다크 테마
 python -m frontend --online                      # Folium + OpenStreetMap, 인터넷 필요
 python -m frontend --json data_ai/results.json    # 외부 JSON, 읽기 전용
 python -m frontend --json demo.json --mock-json   # 외부 시연 데이터 표시
 ```
 
-- **기본 오프라인:** 로컬 Natural Earth 벡터 지도에 미리 준비한 대표 좌표를 표시합니다. 클릭·군집 기사 선택·검색·다중 분류·지역·정렬·상세가 네트워크 없이 동작합니다. 도로/건물 지도는 아닙니다.
+- **기본 오프라인:** 로컬 Natural Earth/SGIS 벡터 지도에 미리 준비한 대표 좌표를 표시합니다. 클릭·군집 기사 선택·검색·다중 분류·지역·정렬·상세가 네트워크 없이 동작합니다. 시·도 경계가 표시되고 확대하면 시·군·구 경계가 나타납니다. 도로/건물 지도는 아닙니다. 경계 기준연도는 2026년 10월 1일 스냅샷입니다.
 - **온라인:** QtWebEngineView에 Folium/Leaflet 지도를 표시합니다. JS/CSS는 번들에 포함되어 있지만 OpenStreetMap 타일에는 인터넷이 필요합니다. 실패 시 오프라인 화면으로 전환합니다.
 - **Mock:** PR #2의 가상 기사 20개를 원문 그대로 사용합니다. 실제 사건/실시간 뉴스가 아닙니다. example.com 원문 버튼은 비활성화됩니다. 좌표는 시연용 지역 대표 위치입니다.
 - **백엔드 JSON:** 기존 PR #2 JSON과 호환됩니다. 좌표가 없는 기사는 목록/상세에만 표시됩니다. 프론트엔드가 실제 위치를 임의로 추정하지 않습니다.
@@ -55,13 +54,16 @@ python -m frontend --json demo.json --mock-json   # 외부 시연 데이터 표�
 | 카테고리 버튼 | 다중 포함/제외; 모두 해제하면 결과 0건 |
 | 검색 | 제목·요약·지역·분류, 여러 단어는 AND 검색 |
 | Ctrl+K / Ctrl+F | 검색창 포커스 |
-| Ctrl+Enter / 상세 | 별도 상세 창 |
+| Ctrl+Enter / 기사 보기 | 별도 상세 창 |
 | F5 / 새로고침 | 현재 Provider 다시 읽기 |
-| Ctrl+T | 테마 전환, 다음 실행에 유지 |
 | 결과 / 전국 / + / − | 검색 결과에 맞춤 / 초기 지도 범위 / 확대 / 축소 |
 | 로딩 취소 | 현재 작업에 취소 요청, 기존 기사 유지 |
-| JSON 열기 / 데모 | 데이터 소스 변경 |
+| 더 보기 → 뉴스 파일 열기 / 데모 데이터로 보기 | 데이터 소스 변경 |
 
+화면 색상은 **시스템 설정을 자동으로 따릅니다**. 수동 테마 버튼·단축키·저장 옵션은 없습니다.
+실행 중 시스템 화면 모양을 바꾸면 목록·상세·지도도 함께 갱신됩니다. 시스템이 화면 모양을 제공하지 않으면 밝은 화면으로 표시합니다.
+
+하단 상시 상태 표시줄과 설명은 제거했습니다. 데이터·지도 출처와 단축키는 **더 보기 → 지도 및 데이터 정보**에서 확인합니다.
 패널 폭은 드래그로 조정할 수 있습니다. 폭 1250 미만에서는 상세 패널이 접히며 별도 상세 창을 사용합니다.
 오류가 나면 기존 데이터를 유지하고 안내를 표시합니다. 실제 데이터에서 유효한 원문 주소는 기본 브라우저로 엽니다.
 
@@ -80,6 +82,7 @@ root 컨테이너에서만 `QTWEBENGINE_DISABLE_SANDBOX=1`이 필요할 수 있�
 
 ## 구조와 팀원 연결
 
+- [UI 개편 방향과 참고](docs/frontend/DESIGN.md)
 - [모듈 구조·디자인·스레드·지도](docs/frontend/ARCHITECTURE.md)
 - [JSON 계약·Provider 연결 방법](docs/frontend/DATA_CONTRACT.md)
 - [문제 해결](docs/frontend/TROUBLESHOOTING.md)

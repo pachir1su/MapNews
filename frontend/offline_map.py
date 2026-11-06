@@ -1,10 +1,10 @@
-"""Entirely native, network-free coordinate overview; not a street/boundary map."""
+"""Native offline administrative map. District detail follows the zoom level."""
 import math
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QPainter, QPen, QPainterPath
 from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsScene, QGraphicsView, QMenu
 from .themes import tokens
-from .map_data import load_outlines
+from .map_data import load_outlines, load_boundaries
 
 
 def project(latitude: float, longitude: float) -> QPointF:
@@ -39,7 +39,8 @@ class Marker(QGraphicsEllipseItem):
 
     def update_selection(self):
         selected = any(n.id == self.view.selected_id for n in self.items)
-        self.setPen(QPen(QColor("#ffb36b" if selected else "#ffffff"), 4 if selected else 2))
+        self.setPen(QPen(QColor(tokens(self.view.dark)['accent'] if selected else "#ffffff"),
+                         4 if selected else 2))
 
     def paint(self, painter, option, widget=None):
         super().paint(painter, option, widget)
@@ -82,6 +83,9 @@ class OfflineMap(QGraphicsView):
         self.selected_id = None
         self.dark = False
         self.outlines, self.resource_error = load_outlines()
+        self.boundaries, self.boundary_error = load_boundaries()
+        self.district_layer = None
+        self.province_labels = []
         self._first_show = True
         self._background()
 
@@ -90,7 +94,10 @@ class OfflineMap(QGraphicsView):
         self.markers = []
         t = tokens(self.dark)
         self.setBackgroundBrush(QColor(t["map"]))
-        for feature in self.outlines:
+        base = [f for f in self.outlines if f['code'] != 'KOR']
+        base += ([dict(f, code='KOR') for f in self.boundaries['adm1']]
+                 or [f for f in self.outlines if f['code'] == 'KOR'])
+        for feature in base:
             for polygon in feature['polygons']:
                 path = QPainterPath()
                 path.setFillRule(Qt.OddEvenFill)
@@ -99,31 +106,54 @@ class OfflineMap(QGraphicsView):
                     for lon, lat in ring[1:]:
                         path.lineTo(project(lat, lon))
                     path.closeSubpath()
-                color = ('#253b50' if self.dark else '#ffffff') if feature['code'] == 'KOR' else (
-                    '#1b2b3d' if self.dark else '#dce6ef')
+                color = t['land'] if feature['code'] == 'KOR' else t['neighbor']
                 item = self.scene().addPath(path, QPen(QColor(t['grid']), 0), QBrush(QColor(color)))
                 item.setZValue(-2)
-        # The coordinate grid stays usable when the optional outline resource fails.
-        for longitude in range(124, 132):
+        # Keep the normal map quiet. A coordinate grid is only a recovery surface.
+        for longitude in (range(124, 132) if not self.outlines else ()):
             a, b = project(32, longitude), project(40, longitude)
             self.scene().addLine(a.x(), a.y(), b.x(), b.y(), QPen(QColor(t["grid"]), 0))
             note = self.scene().addSimpleText(f"{longitude}°E")
             note.setBrush(QColor(t["muted"]))
             note.setPos(project(38.8, longitude))
-        for latitude in range(32, 41):
+        for latitude in (range(32, 41) if not self.outlines else ()):
             a, b = project(latitude, 124), project(latitude, 132)
             self.scene().addLine(a.x(), a.y(), b.x(), b.y(), QPen(QColor(t["grid"]), 0))
             note = self.scene().addSimpleText(f"{latitude}°N")
             note.setBrush(QColor(t["muted"]))
             note.setPos(project(latitude, 124.3))
-        for name, lat, lon in (("서울", 37.56, 126.98), ("천안", 36.81, 127.15),
-                               ("대전", 36.35, 127.38), ("대구", 35.87, 128.60),
-                               ("광주", 35.16, 126.85), ("부산", 35.18, 129.07),
-                               ("제주", 33.50, 126.53)):
+        self.district_layer = None
+        for level, color, width in (('adm2', 'district', .8), ('adm1', 'province', 1.3)):
+            path = QPainterPath()
+            for feature in self.boundaries[level]:
+                for polygon in feature['polygons']:
+                    for ring in polygon:
+                        path.moveTo(project(ring[0][1], ring[0][0]))
+                        for lon, lat in ring[1:]:
+                            path.lineTo(project(lat, lon))
+                        path.closeSubpath()
+            pen = QPen(QColor(t[color]), width)
+            pen.setCosmetic(True)
+            layer = self.scene().addPath(path, pen)
+            layer.setZValue(-1 if level == 'adm2' else 0)
+            if level == 'adm2':
+                self.district_layer = layer
+        self.province_labels = []
+        for feature in self.boundaries['adm1']:
+            if not feature['label_point']:
+                continue
+            lon, lat = feature['label_point']
+            name = feature['name']
+            for suffix in ('특별자치도', '특별자치시', '통합특별시', '특별시', '광역시'):
+                name = name.replace(suffix, '')
+            name = {'경기도': '경기', '충청북도': '충북', '충청남도': '충남',
+                    '경상북도': '경북', '경상남도': '경남', '전남광주': '전남·광주'}.get(name, name)
             note = self.scene().addSimpleText(name)
             note.setBrush(QColor(t["muted"]))
-            note.setPos(project(lat, lon) + QPointF(14, 9))
+            note.setPos(project(lat, lon))
+            note.setToolTip(feature['name'])
             note.setFlag(note.GraphicsItemFlag.ItemIgnoresTransformations)
+            self.province_labels.append((note, feature['code'] in {'26', '27', '28', '30', '31', '36'}))
         self._update_scene_bounds()
         self._draw_markers()
 
@@ -151,6 +181,10 @@ class OfflineMap(QGraphicsView):
         self.setSceneRect(bounds)
 
     def _draw_markers(self):
+        if self.district_layer:
+            self.district_layer.setVisible(self.transform().m11() >= 2.4)
+        for note, small in self.province_labels:
+            note.setVisible(not small or self.transform().m11() >= 2.4)
         for marker in self.markers:
             self.scene().removeItem(marker)
         self.markers = []

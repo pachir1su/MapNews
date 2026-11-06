@@ -3,6 +3,7 @@ from pathlib import Path
 import os
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication
 from frontend.models import NewsBatch
 from frontend.workers import LoadWorker
 from frontend.offline_map import cluster_points, project
@@ -11,7 +12,7 @@ from frontend.offline_map import cluster_points, project
 def test_main_widgets_and_demo(window):
     assert window.model.rowCount() == 20
     assert window.map.offline.items == window.model.items
-    assert 'MOCK' in window.source_label.text()
+    assert window.source_label.text() == '데모'
     assert window.map.web is None
 
 
@@ -66,7 +67,7 @@ def test_category_and_region_controls(window):
 
 def test_dark_light_and_responsive_detail(window, qtbot):
     previous = window.dark
-    window.toggle_theme()
+    QApplication.styleHints().colorSchemeChanged.emit(Qt.ColorScheme.Light if previous else Qt.ColorScheme.Dark)
     assert window.dark != previous
     assert window.map.offline.dark == window.dark
     window.resize(1100, 700)
@@ -165,7 +166,7 @@ def test_map_failure_fallback(window):
     window.map._fallback('test map failure')
     assert window.map.mode.currentIndex() == 0
     assert window.map.active is window.map.offline
-    assert 'test map failure' in window.statusBar().currentMessage()
+    assert 'test map failure' in window.banner.text()
 
 
 def test_capture_review_screenshots(window):
@@ -173,8 +174,7 @@ def test_capture_review_screenshots(window):
     output.mkdir(exist_ok=True)
     window.select_news('1')
     for dark in (False, True):
-        if window.dark != dark:
-            window.toggle_theme()
+        QApplication.styleHints().colorSchemeChanged.emit(Qt.ColorScheme.Dark if dark else Qt.ColorScheme.Light)
         for width, height in ((1366, 768), (1920, 1080), (1100, 700)):
             window.resize(width, height)
             QTest.qWait(120)

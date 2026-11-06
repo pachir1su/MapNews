@@ -1,5 +1,5 @@
 // This file is inserted after Folium initializes the map and cluster.
-(function () {
+(async function () {
     "use strict";
     const map = __MAP__;
     const cluster = __CLUSTER__;
@@ -8,6 +8,25 @@
     let selected = null;
     let tileErrors = 0;
     window.mapReady = false;
+    map.createPane('boundaries');
+    map.getPane('boundaries').style.zIndex = 350;
+    map.getPane('boundaries').style.pointerEvents = 'none';
+    async function geometry(encoded) {
+        const bytes = Uint8Array.from(atob(encoded), c => c.charCodeAt(0));
+        const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+        return new Response(stream).json();
+    }
+    const [adm1, adm2] = await Promise.all([geometry('__ADM1__'), geometry('__ADM2__')]);
+    const districts = L.geoJSON(adm2, {pane: 'boundaries', interactive: false,
+        style: {color: '#8799ad', weight: 0.8, fill: false, opacity: 0.65, className: 'district-boundary'}});
+    const provinces = L.geoJSON(adm1, {pane: 'boundaries', interactive: false,
+        style: {color: '#64748b', weight: 1.5, fill: false, opacity: 0.85, className: 'province-boundary'}}).addTo(map);
+    function updateBoundaries() {
+        if (map.getZoom() >= 9) districts.addTo(map);
+        else map.removeLayer(districts);
+    }
+    map.on('zoomend', updateBoundaries);
+    updateBoundaries();
 
     window.setNews = function (rows) {
         map.closePopup();
@@ -58,6 +77,8 @@
     });
     window.setTheme = function (dark) {
         document.body.classList.toggle("map-dark", dark);
+        provinces.setStyle({color: dark ? '#afc4df' : '#64748b'});
+        districts.setStyle({color: dark ? '#8a9db5' : '#8799ad'});
     };
     window.mapHome = function () { map.setView([36.0, 127.6], 7); };
     window.fitNews = function () {

@@ -16,12 +16,13 @@ class MapPanel(QFrame):
         self.dark = False
         self.web = None
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setContentsMargins(16, 16, 16, 12)
         toolbar = QHBoxLayout()
-        toolbar.addWidget(label("지역별 뉴스", "heading"))
+        toolbar.addWidget(label("뉴스 지도", "heading"))
         toolbar.addStretch()
         self.mode = QComboBox()
-        self.mode.addItems(["오프라인 좌표", "온라인 지도"])
+        self.mode.addItems(["기본 지도", "온라인 지도"])
+        self.mode.setToolTip("기본 지도는 오프라인 사용 가능 · 온라인 지도는 인터넷 필요")
         self.mode.setAccessibleName("지도 표시 방식")
         toolbar.addWidget(self.mode)
         for title, handler in (("−", lambda: self.active.zoom(0.8)),
@@ -40,26 +41,17 @@ class MapPanel(QFrame):
         self.offline.selected.connect(self.selected)
         self.stack.addWidget(self.offline)
         layout.addWidget(self.stack, 1)
-        self.caption = label("", "muted", True)
-        layout.addWidget(self.caption)
         self.mode.currentIndexChanged.connect(self._mode_changed)
-        self._caption()
         if self.offline.resource_error:
             QTimer.singleShot(0, lambda: self.notice.emit(self.offline.resource_error))
+        if self.offline.boundary_error:
+            QTimer.singleShot(0, lambda: self.notice.emit(self.offline.boundary_error))
 
     @property
     def active(self):
         return self.web if self.mode.currentIndex() == 1 and self.web else self.offline
 
-    def _caption(self):
-        offline_caption = ("오프라인 좌표 격자 · 지형 자원 없음 / 마커 탐색 가능" if self.offline.resource_error else
-                           "오프라인 · Natural Earth 저해상도 지도 / 도로 정보 없음 / 마커 클릭으로 기사 선택")
-        self.caption.setText(offline_caption
-                             if self.mode.currentIndex() == 0 else
-                             "온라인 · © OpenStreetMap contributors / 지도 타일에 인터넷 필요")
-
     def _mode_changed(self, index):
-        self._caption()
         if index == 0:
             if self.web:
                 self.web.shutdown()

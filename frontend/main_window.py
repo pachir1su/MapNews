@@ -3,14 +3,15 @@ from PySide6.QtCore import QSettings, QThread, QTimer, Qt, Slot
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (QApplication, QComboBox, QDialog, QFileDialog, QFrame,
                                QHBoxLayout, QListView, QMainWindow, QPushButton,
-                               QLineEdit, QProgressBar, QSplitter, QVBoxLayout, QWidget)
+                               QLineEdit, QProgressBar, QSplitter, QVBoxLayout, QWidget, QToolButton, QMenu)
 from .detail import DetailPanel, label
 from .map_panel import MapPanel
 from .models import CATEGORIES, NewsBatch
 from .news_list import ITEM_ROLE, NewsDelegate, NewsListModel
 from .providers import JsonNewsProvider, MockNewsProvider
 from .state import FilterState, NewsState
-from .themes import apply_theme
+from .themes import apply_theme, system_is_dark
+from .icons import icon
 from .workers import LoadWorker
 
 
@@ -21,7 +22,8 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(1000, 640)
         self.resize(1500, 900)
         self.settings = settings if settings is not None else QSettings("KOREATECH-Team5", "MapNews")
-        self.dark = self.settings.value("dark", False, type=bool)
+        self.settings.remove("dark")  # Migrate away from the former manual preference.
+        self.dark = system_is_dark(QApplication.styleHints().colorScheme())
         self.provider = provider or MockNewsProvider()
         self.state = NewsState()
         self.worker = None
@@ -30,37 +32,55 @@ class MainWindow(QMainWindow):
         self.category_buttons = {}
         self._shortcuts = []
         root = QWidget()
+        root.setFocusPolicy(Qt.ClickFocus)
+        root.setFocus()
         layout = QVBoxLayout(root)
-        layout.setContentsMargins(20, 16, 20, 10)
-        layout.setSpacing(12)
-        top = QHBoxLayout()
-        top.setSpacing(10)
-        top.addWidget(label("◈ MapNews", "brand"))
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        header = QFrame()
+        header.setObjectName("header")
+        top = QHBoxLayout(header)
+        top.setContentsMargins(28, 16, 24, 16)
+        top.setSpacing(12)
+        top.addWidget(label("MapNews", "brand"))
+        self.source_label = label("준비 중", "source")
+        top.addWidget(self.source_label)
+        top.addSpacing(24)
         self.search = QLineEdit()
-        self.search.setPlaceholderText("제목, 요약, 지역 검색   Ctrl+K")
+        self.search.setPlaceholderText("궁금한 지역이나 뉴스를 검색하세요")
         self.search.setClearButtonEnabled(True)
         self.search.setAccessibleName("뉴스 키워드 검색")
+        self.search.setToolTip("제목·요약·지역 검색 · Ctrl+K")
         top.addWidget(self.search, 1)
-        self.refresh_button = QPushButton("새로고침")
-        self.refresh_button.setToolTip("현재 데이터 소스 다시 읽기 · F5")
-        self.import_button = QPushButton("JSON 열기")
-        self.demo_button = QPushButton("데모")
-        self.detail_button = QPushButton("상세")
-        self.theme_button = QPushButton()
-        self.theme_button.setToolTip("라이트 / 다크 테마 전환 · Ctrl+T")
-        for button in (self.refresh_button, self.import_button, self.demo_button,
-                       self.detail_button, self.theme_button):
-            top.addWidget(button)
-        layout.addLayout(top)
-        sub = QHBoxLayout()
-        sub.addWidget(label("사건의 맥락을, 지도 위에서.", "muted"))
-        sub.addStretch()
-        self.source_label = label("데이터 준비 중", "badge")
-        sub.addWidget(self.source_label)
-        layout.addLayout(sub)
-        self.banner = label("", "muted", True)
+        self.refresh_button = QPushButton()
+        self.refresh_button.setFixedSize(42, 42)
+        self.refresh_button.setAccessibleName("새로고침")
+        self.refresh_button.setToolTip("새로고침 · F5")
+        top.addWidget(self.refresh_button)
+        self.detail_button = QPushButton("기사 보기")
+        top.addWidget(self.detail_button)
+        self.more_button = QToolButton()
+        self.more_button.setFixedSize(42, 42)
+        self.more_button.setAccessibleName("더 보기")
+        self.more_button.setToolTip("데이터 열기 및 앱 정보")
+        self.more_button.setPopupMode(QToolButton.InstantPopup)
+        self.more_menu = QMenu(self)
+        self.import_button = self.more_menu.addAction("뉴스 파일 열기…")
+        self.demo_button = self.more_menu.addAction("데모 데이터로 보기")
+        self.more_menu.addSeparator()
+        self.more_menu.addAction("지도 및 데이터 정보", self.show_information)
+        self.more_button.setMenu(self.more_menu)
+        top.addWidget(self.more_button)
+        layout.addWidget(header)
+        self.banner = label("", "notice", True)
         self.banner.hide()
         layout.addWidget(self.banner)
+        self.notice_timer = QTimer(self)
+        self.notice_timer.setSingleShot(True)
+        self.notice_timer.timeout.connect(self.banner.hide)
+        workspace = QWidget()
+        workspace_layout = QVBoxLayout(workspace)
+        workspace_layout.setContentsMargins(16, 16, 16, 16)
         self.splitter = QSplitter(Qt.Horizontal)
         self.splitter.setChildrenCollapsible(False)
         self.sidebar = self._sidebar()
@@ -73,11 +93,11 @@ class MainWindow(QMainWindow):
         self.splitter.addWidget(self.map)
         self.splitter.addWidget(self.detail)
         self.splitter.setSizes([350, 760, 320])
+        self.splitter.setHandleWidth(12)
         self.splitter.setStretchFactor(1, 1)
-        layout.addWidget(self.splitter, 1)
+        workspace_layout.addWidget(self.splitter)
+        layout.addWidget(workspace, 1)
         self.setCentralWidget(root)
-        self.statusBar().setSizeGripEnabled(True)
-        self.statusBar().showMessage("준비")
         self.loading_progress = QProgressBar()
         self.loading_progress.setRange(0, 0)
         self.loading_progress.setFixedWidth(90)
@@ -86,8 +106,8 @@ class MainWindow(QMainWindow):
         self.cancel_button = QPushButton('로딩 취소')
         self.cancel_button.setToolTip('현재 로딩을 취소합니다. 기존 뉴스는 유지합니다.')
         self.cancel_button.clicked.connect(self.cancel_load)
-        self.statusBar().addPermanentWidget(self.loading_progress)
-        self.statusBar().addPermanentWidget(self.cancel_button)
+        top.insertWidget(4, self.loading_progress)
+        top.insertWidget(5, self.cancel_button)
         self.loading_progress.hide()
         self.cancel_button.hide()
         self.detail_dialog = QDialog(self)
@@ -103,10 +123,9 @@ class MainWindow(QMainWindow):
         self.search.textChanged.connect(self._search_changed)
         self.search.returnPressed.connect(self.apply_filters)
         self.refresh_button.clicked.connect(self.reload)
-        self.import_button.clicked.connect(self.open_json)
-        self.demo_button.clicked.connect(self.use_demo)
+        self.import_button.triggered.connect(self.open_json)
+        self.demo_button.triggered.connect(self.use_demo)
         self.detail_button.clicked.connect(self.show_detail)
-        self.theme_button.clicked.connect(self.toggle_theme)
         self.news.selectionModel().currentChanged.connect(self._list_selected)
         self.news.doubleClicked.connect(lambda _: self.show_detail())
         self.map.selected.connect(self.select_news)
@@ -115,11 +134,12 @@ class MainWindow(QMainWindow):
             detail.locate.connect(self.locate_news)
             detail.notice.connect(self.show_notice)
         for key, handler in (("Ctrl+K", self.search.setFocus), ("Ctrl+F", self.search.setFocus),
-                             ("F5", self.reload), ("Ctrl+T", self.toggle_theme),
+                             ("F5", self.reload),
                              ("Ctrl+Return", self.show_detail), ("Escape", self.dismiss_detail)):
             shortcut = QShortcut(QKeySequence(key), self)
             shortcut.activated.connect(handler)
             self._shortcuts.append(shortcut)
+        QApplication.styleHints().colorSchemeChanged.connect(self._system_theme_changed)
         self.apply_theme()
         if auto_load:
             QTimer.singleShot(0, self.reload)
@@ -128,11 +148,13 @@ class MainWindow(QMainWindow):
         panel = QFrame()
         panel.setObjectName("panel")
         layout = QVBoxLayout(panel)
-        layout.setContentsMargins(12, 16, 12, 8)
+        layout.setContentsMargins(16, 20, 16, 12)
+        layout.setSpacing(14)
         title = QHBoxLayout()
-        title.addWidget(label("뉴스 탐색", "heading"))
+        title.addWidget(label("지금 올라온 뉴스", "heading"))
         title.addStretch()
         self.reset_button = QPushButton("초기화")
+        self.reset_button.setObjectName("quiet")
         self.reset_button.setToolTip("키워드·분류·지역·정렬 초기화")
         self.reset_button.clicked.connect(self.reset_filters)
         title.addWidget(self.reset_button)
@@ -143,7 +165,7 @@ class MainWindow(QMainWindow):
             button = QPushButton(category)
             button.setCheckable(True)
             button.setChecked(True)
-            button.setStyleSheet("padding:6px 4px;")
+            button.setStyleSheet("padding:7px 7px;")
             button.setAccessibleName(category + " 기사 포함")
             button.clicked.connect(self.apply_filters)
             self.category_buttons[category] = button
@@ -189,6 +211,7 @@ class MainWindow(QMainWindow):
             return
         if self.worker:
             self.worker.deleteLater()
+        self.notice_timer.stop()
         self.banner.hide()
         self.refresh_button.setEnabled(False)
         self.import_button.setEnabled(False)
@@ -197,7 +220,7 @@ class MainWindow(QMainWindow):
         self.cancel_button.setText('로딩 취소')
         self.cancel_button.setEnabled(True)
         self.cancel_button.show()
-        self.statusBar().showMessage("데이터 로딩 중… 기존 기사는 계속 탐색할 수 있습니다.")
+        self.source_label.setText("불러오는 중")
         self.worker = LoadWorker(self.provider, self)
         self.worker.loaded.connect(self._loaded)
         self.worker.failed.connect(self._failed)
@@ -223,9 +246,10 @@ class MainWindow(QMainWindow):
         for category, button in self.category_buttons.items():
             count = sum(item.category == category for item in batch.items)
             button.setToolTip(f"{category} {count}건 · 여러 분류를 동시에 선택할 수 있습니다")
-        self.source_label.setText(batch.source)
+        self.source_label.setText("데모" if batch.items and all(n.is_mock for n in batch.items) else "뉴스 데이터")
+        self.source_label.setToolTip(batch.source)
         if batch.warnings:
-            self.banner.setText(f"데이터 확인 사항 {len(batch.warnings)}건 · 일부 항목을 보완하거나 제외했습니다.")
+            self.show_notice(f"확인이 필요한 데이터가 {len(batch.warnings)}건 있어요.")
             self.banner.setToolTip("\n".join(batch.warnings[:30]))
             self.banner.show()
         self.apply_filters()
@@ -234,9 +258,9 @@ class MainWindow(QMainWindow):
     def _failed(self, message):
         if self.closing or (self.worker and self.worker.cancel.is_set()):
             return
+        self.notice_timer.stop()
         self.banner.setText(message + (" 기존 데이터는 유지합니다." if self.batch else ""))
         self.banner.show()
-        self.statusBar().showMessage("연결 실패 · 새로고침 또는 데모 모드로 다시 시도하세요.")
         if not self.state.items:
             self.empty.setText("데이터를 불러오지 못했습니다.\n상단의 새로고침 또는 데모를 선택하세요.")
             self.news.hide()
@@ -245,13 +269,14 @@ class MainWindow(QMainWindow):
     def _load_finished(self):
         self.loading_progress.hide()
         self.cancel_button.hide()
+        self.source_label.setText("데모" if self.batch and all(n.is_mock for n in self.batch.items) else "뉴스 데이터" if self.batch else "데이터 없음")
         self.refresh_button.setEnabled(True)
         self.import_button.setEnabled(True)
         self.demo_button.setEnabled(True)
         if self.closing:
             QTimer.singleShot(0, self.close)
         elif self.worker and self.worker.cancel.is_set():
-            self.statusBar().showMessage('로딩을 취소했습니다. 기존 뉴스는 유지합니다.')
+            self.show_notice('불러오기를 취소했어요.')
             if not self.batch:
                 self.source_label.setText('데이터 없음')
                 self.news.hide()
@@ -264,10 +289,10 @@ class MainWindow(QMainWindow):
             self.worker.cancel.set()
             self.cancel_button.setEnabled(False)
             self.cancel_button.setText('취소 중…')
-            self.statusBar().showMessage('로딩 취소 요청을 전달했습니다. 작업 정리를 기다립니다…')
+            self.source_label.setText('취소 중')
 
     def _search_changed(self):
-        self.statusBar().showMessage("검색 중…")
+        self.count.setText("검색 중")
         self.debounce.start()
 
     @Slot()
@@ -296,10 +321,8 @@ class MainWindow(QMainWindow):
         self.empty.setText("검색 결과가 없습니다.\n검색어와 필터를 바꾸거나 초기화하세요."
                            if self.state.items else "등록된 뉴스가 없습니다.\nJSON 파일을 열거나 데모를 시작하세요.")
         located = sum(item.has_coordinates for item in visible)
-        self.count.setText(f"{len(visible)}건 / 전체 {len(self.state.items)}건")
-        self.statusBar().showMessage(
-            f"뉴스 {len(visible)}건  ·  지도 표시 {located}건  ·  좌표 없음 {len(visible) - located}건"
-            "  |  Ctrl+K 검색  ·  Ctrl+Enter 상세  ·  F5 새로고침")
+        self.count.setText(f"뉴스 {len(visible)}개")
+        self.count.setToolTip(f"전체 {len(self.state.items)}개 · 지도에 표시 {located}개")
 
     def reset_filters(self):
         self.search.blockSignals(True)
@@ -356,7 +379,9 @@ class MainWindow(QMainWindow):
         self.search.clearFocus()
 
     def show_notice(self, message):
-        self.statusBar().showMessage(message, 12000)
+        self.banner.setText(message)
+        self.banner.show()
+        self.notice_timer.start(6000)
 
     def use_demo(self):
         if self.worker and self.worker.isRunning():
@@ -371,32 +396,41 @@ class MainWindow(QMainWindow):
             self.provider = JsonNewsProvider(path)
             self.reload()
 
-    def toggle_theme(self):
-        self.dark = not self.dark
-        self.apply_theme()
+    def show_information(self):
+        from .information import InformationDialog
+        dialog = InformationDialog(self)
+        dialog.setAttribute(Qt.WA_DeleteOnClose)
+        dialog.show()
+
+    def _system_theme_changed(self, scheme):
+        if not self.closing:
+            self.dark = system_is_dark(scheme)
+            self.apply_theme()
 
     def apply_theme(self):
         apply_theme(QApplication.instance(), self.dark)
         self.delegate.dark = self.dark
         self.news.viewport().update()
         self.map.set_theme(self.dark)
-        self.theme_button.setText("라이트" if self.dark else "다크")
-        self.settings.setValue("dark", self.dark)
+        self.refresh_button.setIcon(icon("refresh", self.dark))
+        self.more_button.setIcon(icon("more", self.dark))
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
         if hasattr(self, "detail"):
             self.detail.setVisible(self.width() >= 1250)
+            self.detail_button.setVisible(self.width() < 1250)
 
     def closeEvent(self, event):
         self.closing = True
         self.debounce.stop()
+        self.notice_timer.stop()
         if self.worker:
             self.worker.cancel.set()
         running = [thread for thread in self.findChildren(QThread) if thread.isRunning()]
         if running:
             event.ignore()
-            self.statusBar().showMessage("작업을 정리하고 종료합니다…")
+            self.source_label.setText("종료 중")
             for thread in running:
                 try:
                     thread.finished.connect(self.close, Qt.UniqueConnection)
