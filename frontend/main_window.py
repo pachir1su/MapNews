@@ -29,6 +29,8 @@ class MainWindow(QMainWindow):
         self.state = NewsState()
         self.state.saved_keys = read_bookmarks(self.settings.value('bookmarks_v1', '[]'))
         self.worker = None
+        self._load_active = False
+        self._load_settled = False
         self.pending_provider = None
         self.setAcceptDrops(True)
         self.closing = False
@@ -263,7 +265,7 @@ class MainWindow(QMainWindow):
         return panel
 
     def update_empty_state(self):
-        busy = bool(self.worker and self.worker.isRunning())
+        busy = self._load_active
         has_rows = bool(self.model.items)
         self.empty.setVisible(not has_rows)
         self.news.setVisible(has_rows)
@@ -288,7 +290,7 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def reload(self):
-        if self.closing or (self.worker and self.worker.isRunning()):
+        if self.closing or self._load_active:
             return
         if self.worker:
             self.worker.deleteLater()
@@ -296,6 +298,8 @@ class MainWindow(QMainWindow):
         self.banner.hide()
         self.load_error = ""
         self.load_cancelled = False
+        self._load_active = True
+        self._load_settled = False
         self.refresh_button.setEnabled(False)
         self.import_button.setEnabled(False)
         self.default_data_action.setEnabled(False)
@@ -314,6 +318,9 @@ class MainWindow(QMainWindow):
     def _loaded(self, batch: NewsBatch):
         if self.closing or (self.worker and self.worker.cancel.is_set()):
             return
+        # Once the UI accepts a result it cannot subsequently become cancelled.
+        self._load_settled = True
+        self.cancel_button.setEnabled(False)
         replacing = self.pending_provider is not None
         if replacing and self.worker:
             self.provider = self.worker.provider
@@ -349,6 +356,8 @@ class MainWindow(QMainWindow):
     def _failed(self, message):
         if self.closing or (self.worker and self.worker.cancel.is_set()):
             return
+        self._load_settled = True
+        self.cancel_button.setEnabled(False)
         self.load_error = message
         self.notice_timer.stop()
         self.banner.setToolTip("")
@@ -361,6 +370,7 @@ class MainWindow(QMainWindow):
             self.empty.show()
 
     def _load_finished(self):
+        self._load_active = False
         self.loading_progress.hide()
         self.cancel_button.hide()
         self.refresh_button.setEnabled(True)
@@ -368,7 +378,7 @@ class MainWindow(QMainWindow):
         self.default_data_action.setEnabled(True)
         if self.closing:
             QTimer.singleShot(0, self.close)
-        elif self.worker and self.worker.cancel.is_set():
+        elif self.worker and self.worker.cancel.is_set() and not self._load_settled:
             self.pending_provider = None
             self.load_cancelled = True
             self.show_notice('불러오기를 취소했어요.')
@@ -382,7 +392,7 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def cancel_load(self):
-        if self.worker and self.worker.isRunning():
+        if self.worker and self._load_active and not self._load_settled:
             self.worker.cancel.set()
             self.cancel_button.setEnabled(False)
 
@@ -405,15 +415,22 @@ class MainWindow(QMainWindow):
         current = self.state.reconcile_selection()
         selection = self.news.selectionModel()
         selection.blockSignals(True)
-        self.model.replace(visible)
+        scroll_position = self.news.verticalScrollBar().value()
+        same_rows = self.model.items == visible
+        if not same_rows:
+            self.model.replace(visible)
         if current:
             index = next(i for i, item in enumerate(visible) if item.id == current.id)
             self.news.setCurrentIndex(self.model.index(index))
         selection.blockSignals(False)
-        located_ids = frozenset(item.id for item in visible if item.has_coordinates)
+        if same_rows:
+            self.news.verticalScrollBar().setValue(scroll_position)
+        located_ids = frozenset((item.id, item.latitude, item.longitude)
+                               for item in visible if item.has_coordinates)
         changed = self._map_result_ids is not None and located_ids != self._map_result_ids
         self._map_result_ids = located_ids
-        self.map.set_items(visible)
+        if not same_rows:
+            self.map.set_items(visible)
         self._display_selection(current, focus=False)
         if changed and located_ids:
             self.map.active.fit_results()
@@ -539,13 +556,13 @@ class MainWindow(QMainWindow):
         self.notice_timer.start(6000)
 
     def use_default_data(self):
-        if self.worker and self.worker.isRunning():
+        if self._load_active:
             return
         self.pending_provider = MockNewsProvider()
         self.reload()
 
     def open_json(self):
-        if self.worker and self.worker.isRunning():
+        if self._load_active:
             return
         path, _ = QFileDialog.getOpenFileName(self, '뉴스 JSON 열기',
                                               self.settings.value('import_directory', ''), 'JSON (*.json)')
@@ -553,7 +570,7 @@ class MainWindow(QMainWindow):
             self.import_json(path)
 
     def import_json(self, path):
-        if self.worker and self.worker.isRunning():
+        if self._load_active:
             return
         from pathlib import Path
         self.settings.setValue('import_directory', str(Path(path).parent))
@@ -562,7 +579,7 @@ class MainWindow(QMainWindow):
 
     def dragEnterEvent(self, event):
         urls = event.mimeData().urls()
-        if (not (self.worker and self.worker.isRunning()) and len(urls) == 1
+        if (not self._load_active and len(urls) == 1
                 and urls[0].isLocalFile() and urls[0].toLocalFile().lower().endswith('.json')):
             event.acceptProposedAction()
         else:
@@ -570,7 +587,7 @@ class MainWindow(QMainWindow):
 
     def dropEvent(self, event):
         urls = event.mimeData().urls()
-        if (not (self.worker and self.worker.isRunning()) and len(urls) == 1
+        if (not self._load_active and len(urls) == 1
                 and urls[0].isLocalFile() and urls[0].toLocalFile().lower().endswith('.json')):
             self.import_json(urls[0].toLocalFile())
             event.acceptProposedAction()

@@ -27,6 +27,9 @@ class DetailPanel(QFrame):
         self.setObjectName('sidebar')
         self.item = None
         self.dark = False
+        self.scroll_reset = QTimer(self)
+        self.scroll_reset.setSingleShot(True)
+        self.scroll_reset.timeout.connect(lambda: self.scroll.verticalScrollBar().setValue(0))
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 16, 24, 24)
         layout.setSpacing(16)
@@ -113,7 +116,7 @@ class DetailPanel(QFrame):
         self.next_button.setEnabled(following)
 
     def set_item(self, item: NewsItem | None):
-        previous = self.item.id if self.item else None
+        previous = self.item
         self.item = item
         self.title.setText(item.title if item else '')
         parts = [item.location] if item else []
@@ -128,8 +131,8 @@ class DetailPanel(QFrame):
         self.locate_button.setVisible(bool(item and item.has_coordinates))
         self.open_button.setVisible(bool(item and safe_url(item.url) and not item.is_mock))
         self.open_button.setToolTip(item.url if item else '')
-        if previous != (item.id if item else None):
-            QTimer.singleShot(0, lambda: self.scroll.verticalScrollBar().setValue(0))
+        if previous != item:
+            self.scroll_reset.start(0)
 
     def _locate(self):
         if self.item and self.item.has_coordinates:
