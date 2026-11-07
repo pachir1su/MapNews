@@ -58,7 +58,7 @@ def build_map_html(*, online_tiles: bool = True) -> str:
       display:flex; align-items:center; justify-content:center;
       box-shadow:0 2px 9px #17253d55; }
     .news-pin img { width:19px; height:19px; pointer-events:none; }
-    .news-selected { outline:4px solid #3182f6; outline-offset:3px; }
+    .news-selected { outline:4px solid #3182f6; outline-offset:3px; border-radius:50%; }
     .map-dark .leaflet-tile-pane { filter:brightness(.65) saturate(.65); }
     .news-cluster { border:3px solid white; border-radius:50%; background:#2465c4;
       color:white; font:600 14px sans-serif; display:flex; align-items:center; justify-content:center;

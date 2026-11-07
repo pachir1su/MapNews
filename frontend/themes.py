@@ -43,7 +43,7 @@ def apply_theme(app, dark: bool):
     QFrame#sidebar { background: %(panel)s; border: none; }
     QFrame#mapSurface { background: %(map)s; border: none; }
     QWidget#mapControls { background: transparent; }
-    QToolButton#mapControl { background: %(panel)s; border: 1px solid %(border)s; padding: 0; }
+    QToolButton#mapControl { background: %(panel)s; border: 1px solid %(border)s; padding: 0; min-height: 42px; }
     QToolButton#mapControl:hover { background: %(selected)s; }
     QComboBox#sort { background: transparent; border: none; padding-left: 8px; }
     QLabel { background: transparent; }
@@ -66,7 +66,7 @@ def apply_theme(app, dark: bool):
     QPushButton:focus, QLineEdit:focus, QComboBox:focus { border: 2px solid %(accent)s; }
     QPushButton:checked { background: %(selected)s; color: %(accent)s; font-weight: 600; }
     QPushButton#quiet { background: transparent; color: %(muted)s; }
-    QToolButton { padding: 0; }
+    QToolButton { padding: 0; min-height: 38px; }
     QToolButton:focus { border: 2px solid %(accent)s; }
     QToolButton::menu-indicator { image: none; }
     QPushButton:disabled { color: %(muted)s; }
