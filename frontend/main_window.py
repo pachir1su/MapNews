@@ -27,6 +27,8 @@ class MainWindow(QMainWindow):
         self.provider = provider or MockNewsProvider()
         self.state = NewsState()
         self.worker = None
+        self.pending_provider = None
+        self.setAcceptDrops(True)
         self.closing = False
         self.batch = None
         self.load_error = ""
@@ -48,6 +50,7 @@ class MainWindow(QMainWindow):
         self.search = QLineEdit()
         self.search.setPlaceholderText("지역, 뉴스 검색")
         self.search.setClearButtonEnabled(True)
+        self.search.setAcceptDrops(False)
         self.search.setAccessibleName("뉴스 검색")
         self.search.setToolTip("Ctrl+K")
         self.search.setMaximumWidth(620)
@@ -81,6 +84,7 @@ class MainWindow(QMainWindow):
         self.default_data_action = self.more_menu.addAction("기본 데이터로 돌아가기")
         self.more_menu.addSeparator()
         self.more_menu.addAction("정보", self.show_information)
+        self.more_menu.addAction("불러오기 정보", self.show_load_details)
         self.more_button.setMenu(self.more_menu)
         top.addWidget(self.more_button)
         layout.addWidget(header)
@@ -257,7 +261,7 @@ class MainWindow(QMainWindow):
         self.loading_progress.show()
         self.cancel_button.setEnabled(True)
         self.cancel_button.show()
-        self.worker = LoadWorker(self.provider, self)
+        self.worker = LoadWorker(self.pending_provider or self.provider, self)
         self.worker.loaded.connect(self._loaded)
         self.worker.failed.connect(self._failed)
         self.worker.finished.connect(self._load_finished)
@@ -268,6 +272,10 @@ class MainWindow(QMainWindow):
     def _loaded(self, batch: NewsBatch):
         if self.closing or (self.worker and self.worker.cancel.is_set()):
             return
+        replacing = self.pending_provider is not None
+        if replacing and self.worker:
+            self.provider = self.worker.provider
+            self.pending_provider = None
         self.load_error = ""
         self.load_cancelled = False
         self.batch = batch
@@ -289,7 +297,10 @@ class MainWindow(QMainWindow):
             self.show_notice(f"확인이 필요한 데이터가 {len(batch.warnings)}건 있어요.")
             self.banner.setToolTip("\n".join(batch.warnings[:30]))
             self.banner.show()
-        self.apply_filters()
+        if replacing:
+            self.reset_filters()
+        else:
+            self.apply_filters()
 
     @Slot(str)
     def _failed(self, message):
@@ -315,6 +326,7 @@ class MainWindow(QMainWindow):
         if self.closing:
             QTimer.singleShot(0, self.close)
         elif self.worker and self.worker.cancel.is_set():
+            self.pending_provider = None
             self.load_cancelled = True
             self.show_notice('불러오기를 취소했어요.')
             if not self.batch:
@@ -452,15 +464,62 @@ class MainWindow(QMainWindow):
     def use_default_data(self):
         if self.worker and self.worker.isRunning():
             return
-        self.provider = MockNewsProvider()
-        self.reset_filters()
+        self.pending_provider = MockNewsProvider()
         self.reload()
 
     def open_json(self):
-        path, _ = QFileDialog.getOpenFileName(self, "뉴스 JSON 열기", "", "JSON (*.json)")
+        if self.worker and self.worker.isRunning():
+            return
+        path, _ = QFileDialog.getOpenFileName(self, '뉴스 JSON 열기',
+                                              self.settings.value('import_directory', ''), 'JSON (*.json)')
         if path:
-            self.provider = JsonNewsProvider(path)
-            self.reload()
+            self.import_json(path)
+
+    def import_json(self, path):
+        if self.worker and self.worker.isRunning():
+            return
+        from pathlib import Path
+        self.settings.setValue('import_directory', str(Path(path).parent))
+        self.pending_provider = JsonNewsProvider(path)
+        self.reload()
+
+    def dragEnterEvent(self, event):
+        urls = event.mimeData().urls()
+        if (not (self.worker and self.worker.isRunning()) and len(urls) == 1
+                and urls[0].isLocalFile() and urls[0].toLocalFile().lower().endswith('.json')):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):
+        urls = event.mimeData().urls()
+        if (not (self.worker and self.worker.isRunning()) and len(urls) == 1
+                and urls[0].isLocalFile() and urls[0].toLocalFile().lower().endswith('.json')):
+            self.import_json(urls[0].toLocalFile())
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def show_load_details(self):
+        from PySide6.QtWidgets import QDialog, QDialogButtonBox, QPlainTextEdit
+        dialog = QDialog(self)
+        dialog.setWindowTitle('불러오기 정보')
+        dialog.setAttribute(Qt.WA_DeleteOnClose)
+        dialog.resize(560, 420)
+        layout = QVBoxLayout(dialog)
+        lines = [self.load_error] if self.load_error else []
+        if self.batch:
+            lines.extend([self.batch.source, f'기사 {len(self.batch.items)}건',
+                          f'좌표 있는 기사 {sum(n.has_coordinates for n in self.batch.items)}건',
+                          '', *self.batch.warnings])
+        content = QPlainTextEdit()
+        content.setReadOnly(True)
+        content.setPlainText('\n'.join(lines) if lines else '아직 불러온 데이터가 없어요.')
+        layout.addWidget(content)
+        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        buttons.rejected.connect(dialog.close)
+        layout.addWidget(buttons)
+        dialog.show()
 
     def show_information(self):
         from .information import InformationDialog
