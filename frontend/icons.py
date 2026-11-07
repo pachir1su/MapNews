@@ -18,7 +18,7 @@ def svg_text(name: str, color: str) -> str:
     name = ALIASES.get(name, name)
     # Only our registry reaches filesystem paths; news never supplies asset markup.
     if name not in {*CATEGORY_ICONS.values(), *ALIASES.values(), 'map-pin', 'layers',
-                    'plus', 'minus', 'x', 'search', 'arrow-up-right'}:
+                    'plus', 'minus', 'x', 'search', 'arrow-up-right', 'bookmark'}:
         name = 'map-pin'
     return (ICON_DIR / f'{name}.svg').read_text(encoding='utf-8').replace('currentColor', color)
 

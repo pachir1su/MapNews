@@ -68,6 +68,7 @@ def apply_theme(app, dark: bool):
     QPushButton#quiet { background: transparent; color: %(muted)s; }
     QToolButton { padding: 0; min-height: 38px; }
     QToolButton:focus { border: 2px solid %(accent)s; }
+    QToolButton:checked { background: %(selected)s; }
     QToolButton::menu-indicator { image: none; }
     QPushButton:disabled { color: %(muted)s; }
     QPushButton#primary { background: %(primary)s; color: white; font-weight: 600; }

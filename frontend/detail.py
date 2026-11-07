@@ -20,11 +20,13 @@ class DetailPanel(QFrame):
     notice = Signal(str)
     back = Signal()
     navigate = Signal(int)
+    bookmark = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName('sidebar')
         self.item = None
+        self.dark = False
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 16, 24, 24)
         layout.setSpacing(16)
@@ -35,6 +37,7 @@ class DetailPanel(QFrame):
         self.back_button.setToolTip('뒤로 · Esc')
         self.back_button.clicked.connect(self.back)
         navigation = QHBoxLayout()
+        navigation.setSpacing(6)
         navigation.addWidget(self.back_button)
         navigation.addStretch()
         self.previous_button = QToolButton()
@@ -47,6 +50,12 @@ class DetailPanel(QFrame):
             button.setToolTip(title)
             button.clicked.connect(lambda checked=False, value=direction: self.navigate.emit(value))
             navigation.addWidget(button)
+        self.save_button = QToolButton()
+        self.save_button.setFixedSize(40, 40)
+        self.save_button.setIconSize(QSize(20, 20))
+        self.save_button.setCheckable(True)
+        self.save_button.clicked.connect(self.bookmark)
+        navigation.addWidget(self.save_button)
         layout.addLayout(navigation)
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
@@ -79,12 +88,25 @@ class DetailPanel(QFrame):
         layout.addWidget(self.locate_button)
         layout.addWidget(self.open_button)
         self.set_item(None)
+        self.set_saved(False)
 
     def set_theme(self, dark):
+        self.dark = dark
         self.back_button.setIcon(icon('back', dark))
         self.previous_button.setIcon(icon('back', dark))
         from PySide6.QtGui import QIcon, QTransform
         self.next_button.setIcon(QIcon(icon('back', dark).pixmap(40, 40).transformed(QTransform().rotate(180))))
+        self.set_saved(self.save_button.isChecked())
+
+    def set_saved(self, saved):
+        from .themes import tokens
+        self.save_button.setChecked(saved)
+        self.save_button.setIcon(icon('bookmark', self.dark,
+                                     tokens(self.dark)['accent'] if saved else None))
+        title = '저장 취소' if saved else '기사 저장'
+        self.save_button.setAccessibleName(title)
+        self.save_button.setToolTip(title + ' · Ctrl+D')
+        self.save_button.setEnabled(self.item is not None)
 
     def set_navigation(self, previous, following):
         self.previous_button.setEnabled(previous)

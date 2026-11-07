@@ -13,6 +13,7 @@ from .state import FilterState, NewsState
 from .themes import apply_theme, system_is_dark
 from .icons import icon
 from .workers import LoadWorker
+from .bookmarks import MAX_BOOKMARKS, bookmark_key, read_bookmarks, write_bookmarks
 
 
 class MainWindow(QMainWindow):
@@ -26,6 +27,7 @@ class MainWindow(QMainWindow):
         self.dark = system_is_dark(QApplication.styleHints().colorScheme())
         self.provider = provider or MockNewsProvider()
         self.state = NewsState()
+        self.state.saved_keys = read_bookmarks(self.settings.value('bookmarks_v1', '[]'))
         self.worker = None
         self.pending_provider = None
         self.setAcceptDrops(True)
@@ -104,6 +106,7 @@ class MainWindow(QMainWindow):
         self.detail = DetailPanel()
         self.detail.back.connect(self.dismiss_detail)
         self.detail.navigate.connect(self.navigate_article)
+        self.detail.bookmark.connect(self.toggle_bookmark)
         self.panel_stack.addWidget(self.sidebar)
         self.panel_stack.addWidget(self.detail)
         self.map = MapPanel(online=online)
@@ -140,6 +143,7 @@ class MainWindow(QMainWindow):
             shortcut.activated.connect(handler)
             self._shortcuts.append(shortcut)
         for key, handler in (('Ctrl+O', self.open_json), ('Ctrl+L', self.focus_list),
+                             ('Ctrl+D', self.toggle_bookmark),
                              ('Alt+Left', self.dismiss_detail),
                              ('Alt+Up', lambda: self.navigate_article(-1)),
                              ('Alt+Down', lambda: self.navigate_article(1))):
@@ -182,6 +186,14 @@ class MainWindow(QMainWindow):
         self.sort.currentIndexChanged.connect(self.apply_filters)
         toolbar.addWidget(self.sort)
         toolbar.addStretch()
+        self.saved_button = QToolButton()
+        self.saved_button.setFixedSize(40, 40)
+        self.saved_button.setIconSize(QSize(20, 20))
+        self.saved_button.setCheckable(True)
+        self.saved_button.setAccessibleName('저장한 기사만 보기')
+        self.saved_button.setToolTip('저장한 기사')
+        self.saved_button.toggled.connect(self.apply_filters)
+        toolbar.addWidget(self.saved_button)
         self.filter_button = QPushButton("필터")
         self.filter_button.setCheckable(True)
         self.filter_button.setAccessibleName("검색 필터 펼치기")
@@ -257,7 +269,9 @@ class MainWindow(QMainWindow):
         self.news.setVisible(has_rows)
         if not has_rows:
             if self.state.items:
-                message = '검색 결과가 없어요'
+                message = '저장한 기사가 없어요' if (self.state.filters.saved_only
+                           and not any(bookmark_key(item) in self.state.saved_keys
+                                       for item in self.state.items)) else '검색 결과가 없어요'
             elif busy:
                 message = '불러오는 중'
             elif self.load_error:
@@ -268,6 +282,7 @@ class MainWindow(QMainWindow):
                 message = '아직 뉴스가 없어요'
             self.empty.setText(message)
         self.empty_reset.setVisible(not has_rows and bool(self.state.items))
+        self.empty_reset.setText('전체 기사 보기' if self.state.filters.saved_only else '필터 초기화')
         self.empty_open.setVisible(not self.state.items and not busy)
         self.retry_button.setVisible(not busy and bool(self.load_error or self.load_cancelled))
 
@@ -384,7 +399,8 @@ class MainWindow(QMainWindow):
         if self.other_button.isChecked():
             categories.update(item.category for item in self.state.items if item.category not in CATEGORIES)
         self.state.filters = FilterState(self.search.text(), categories,
-                                         self.region.currentData() or "", self.sort.currentIndex() == 0)
+                                         self.region.currentData() or "", self.sort.currentIndex() == 0,
+                                         self.saved_button.isChecked())
         visible = self.state.visible()
         current = self.state.reconcile_selection()
         selection = self.news.selectionModel()
@@ -408,10 +424,14 @@ class MainWindow(QMainWindow):
                   or bool(self.region.currentData()))
         self.filter_button.setText("필터 적용 중" if active else "필터")
         self.news.setAccessibleDescription(f"검색 결과 {len(visible)}개")
+        self._update_saved_icon()
         if not current:
             self.panel_stack.setCurrentWidget(self.sidebar)
 
     def reset_filters(self):
+        self.saved_button.blockSignals(True)
+        self.saved_button.setChecked(False)
+        self.saved_button.blockSignals(False)
         self.search.blockSignals(True)
         self.search.clear()
         self.search.blockSignals(False)
@@ -447,10 +467,39 @@ class MainWindow(QMainWindow):
 
     def _display_selection(self, item, focus):
         self.detail.set_item(item)
+        self.detail.set_saved(bool(item and bookmark_key(item) in self.state.saved_keys))
         ids = [row.id for row in self.model.items]
         index = ids.index(item.id) if item and item.id in ids else -1
         self.detail.set_navigation(index > 0, 0 <= index < len(ids) - 1)
         self.map.set_selected(item.id if item else None, focus)
+
+    def toggle_bookmark(self):
+        item = next((item for item in self.model.items if item.id == self.state.selected_id), None)
+        if not item:
+            return
+        key = bookmark_key(item)
+        if key in self.state.saved_keys:
+            self.state.saved_keys.remove(key)
+        elif len(self.state.saved_keys) >= MAX_BOOKMARKS:
+            self.detail.set_saved(False)
+            self.show_notice('저장 공간이 가득 찼어요. 기존 저장을 해제해 주세요.')
+            return
+        else:
+            self.state.saved_keys.add(key)
+        self.settings.setValue('bookmarks_v1', write_bookmarks(self.state.saved_keys))
+        self.settings.sync()
+        self.detail.set_saved(key in self.state.saved_keys)
+        if self.state.filters.saved_only:
+            self.apply_filters()
+        if self.settings.status() != QSettings.NoError:
+            self.show_notice('저장 상태를 기기에 기록하지 못했어요.')
+
+    def _update_saved_icon(self):
+        from .themes import tokens
+        saved = self.saved_button.isChecked()
+        self.saved_button.setIcon(icon('bookmark', self.dark,
+                                       tokens(self.dark)['accent'] if saved else None))
+        self.saved_button.setToolTip('전체 기사 보기' if saved else '저장한 기사')
 
     def _map_selected(self, identifier):
         self.select_news(identifier)
@@ -570,6 +619,7 @@ class MainWindow(QMainWindow):
         self.filter_button.setIcon(icon("filter", self.dark))
         self.cancel_button.setIcon(icon("x", self.dark))
         self.detail.set_theme(self.dark)
+        self._update_saved_icon()
 
     def closeEvent(self, event):
         self.closing = True
