@@ -77,6 +77,14 @@ python -m frontend --json demo.json --mock-json   # 외부 JSON을 가상 기사
 - [이전 버전 검증 기록](docs/frontend/VALIDATION.md)
 - [사용 흐름](docs/frontend/DEMO.md)
 
+## 읽기·파일 열기 단축키
+
+- 상세 위 이전/다음 버튼 또는 Alt+위/아래로 검색 결과 순서대로 읽습니다.
+- Ctrl+L 또는 검색창에서 아래 방향키로 목록에 이동하고, Enter로 상세를 엽니다.
+- Esc/Alt+왼쪽으로 목록에 돌아옵니다. Ctrl+O 또는 JSON 파일 드래그로 데이터를 엽니다.
+- 새 파일은 로딩 성공 후 적용합니다. 실패하면 기존 기사와 검색 조건이 남으며 재시도할 수 있습니다.
+- 더 보기 → 불러오기 정보에서 좌표 누락·제외된 행 등 데이터 경고를 확인합니다.
+
 ## 구조와 팀원 연결
 
 - [UI 개편 방향과 참고](docs/frontend/DESIGN.md)

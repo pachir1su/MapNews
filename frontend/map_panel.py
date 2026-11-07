@@ -24,6 +24,7 @@ class MapPanel(QFrame):
         layout.setContentsMargins(0, 0, 0, 0)
         self.stack = QStackedWidget()
         self.offline = OfflineMap()
+        self.offline.setAcceptDrops(False)
         self.offline.selected.connect(self.selected)
         self.stack.addWidget(self.offline)
         layout.addWidget(self.stack, 0, 0)
@@ -93,6 +94,7 @@ class MapPanel(QFrame):
         try:
             from .web_map import WebMap
             view = WebMap(self)
+            view.setAcceptDrops(False)
             self.web = view
             view.selected.connect(self.selected)
             view.failed.connect(lambda reason: self._fallback(reason) if self.web is view else None)
@@ -100,7 +102,7 @@ class MapPanel(QFrame):
             self.stack.setCurrentWidget(view)
             view.set_items(self.rows)
             view.set_theme(self.dark)
-            view.set_selected(self.current_id)
+            view.set_selected(self.current_id, focus=bool(self.current_id))
         except (ImportError, RuntimeError):
             self._fallback('지도를 열 수 없어요.')
 

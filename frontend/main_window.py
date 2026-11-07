@@ -303,6 +303,7 @@ class MainWindow(QMainWindow):
         if replacing and self.worker:
             self.provider = self.worker.provider
             self.pending_provider = None
+            self.state.selected_id = None
         self.load_error = ""
         self.load_cancelled = False
         self.batch = batch
