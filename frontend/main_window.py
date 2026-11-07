@@ -449,9 +449,7 @@ class MainWindow(QMainWindow):
         self.saved_button.blockSignals(True)
         self.saved_button.setChecked(False)
         self.saved_button.blockSignals(False)
-        self.search.blockSignals(True)
         self.search.clear()
-        self.search.blockSignals(False)
         for button in self.category_buttons.values():
             button.setChecked(True)
         self.other_button.setChecked(True)

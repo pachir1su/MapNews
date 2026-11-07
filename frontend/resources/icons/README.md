@@ -7,3 +7,6 @@ from https://github.com/feathericons/feather/blob/v4.29.2/LICENSE. No emoji, ico
 
 All icon-only controls have accessible names and tooltips. News categories keep their original
 backend names; only their visual marker changes. Cluster counts remain numeric quantities.
+
+`bookmark.svg` is an original MapNews outline drawn for the local reading feature,
+not an upstream Lucide file. It uses the same 24px grid and 2px stroke.

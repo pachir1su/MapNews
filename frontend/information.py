@@ -38,7 +38,9 @@ class InformationDialog(QDialog):
         배경 타일을 불러올 때 인터넷이 필요합니다.</p>
         <p>아이콘: <a href="https://lucide.dev/">Lucide</a> 0.468.0 (ISC / MIT). 원문 라이선스를 함께 배포합니다.</p>
         <h3>키보드</h3><p>Ctrl+K 검색 · F5 새로고침 · Enter 기사 보기 · Esc 목록으로<br>
-        지도: + / − 확대·축소 · Home 전국</p>
+        Ctrl+D 기사 저장 · Ctrl+O 파일 열기 · Ctrl+L 목록으로<br>
+        Alt+위/아래 이전/다음 기사 · 지도: + / − 확대·축소 · Home 전국</p>
+        <p>저장한 기사는 현재 불러온 데이터에서 모아봅니다. 기사 본문은 별도로 보관하지 않습니다.</p>
         <p>화면 색상은 시스템의 화면 모양 설정을 자동으로 따릅니다.</p>''')
         layout.addWidget(browser)
         buttons = QDialogButtonBox(QDialogButtonBox.Close)
