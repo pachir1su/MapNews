@@ -29,6 +29,8 @@ class MainWindow(QMainWindow):
         self.worker = None
         self.closing = False
         self.batch = None
+        self.load_error = ""
+        self.load_cancelled = False
         self.category_buttons = {}
         self._map_result_ids = None
         self._shortcuts = []
@@ -211,7 +213,32 @@ class MainWindow(QMainWindow):
         self.retry_button.clicked.connect(self.reload)
         self.retry_button.hide()
         layout.addWidget(self.retry_button)
+        self.empty_open = QPushButton("뉴스 파일 열기")
+        self.empty_open.clicked.connect(self.open_json)
+        self.empty_open.hide()
+        layout.addWidget(self.empty_open)
         return panel
+
+    def update_empty_state(self):
+        busy = bool(self.worker and self.worker.isRunning())
+        has_rows = bool(self.model.items)
+        self.empty.setVisible(not has_rows)
+        self.news.setVisible(has_rows)
+        if not has_rows:
+            if self.state.items:
+                message = '검색 결과가 없어요'
+            elif busy:
+                message = '불러오는 중'
+            elif self.load_error:
+                message = '뉴스를 불러오지 못했어요'
+            elif self.load_cancelled:
+                message = '불러오기를 취소했어요'
+            else:
+                message = '아직 뉴스가 없어요'
+            self.empty.setText(message)
+        self.empty_reset.setVisible(not has_rows and bool(self.state.items))
+        self.empty_open.setVisible(not self.state.items and not busy)
+        self.retry_button.setVisible(not busy and bool(self.load_error or self.load_cancelled))
 
     @Slot()
     def reload(self):
@@ -221,6 +248,8 @@ class MainWindow(QMainWindow):
             self.worker.deleteLater()
         self.notice_timer.stop()
         self.banner.hide()
+        self.load_error = ""
+        self.load_cancelled = False
         self.refresh_button.setEnabled(False)
         self.import_button.setEnabled(False)
         self.default_data_action.setEnabled(False)
@@ -233,11 +262,14 @@ class MainWindow(QMainWindow):
         self.worker.failed.connect(self._failed)
         self.worker.finished.connect(self._load_finished)
         self.worker.start()
+        self.update_empty_state()
 
     @Slot(object)
     def _loaded(self, batch: NewsBatch):
         if self.closing or (self.worker and self.worker.cancel.is_set()):
             return
+        self.load_error = ""
+        self.load_cancelled = False
         self.batch = batch
         self.state.items = batch.items
         selected_region = self.region.currentData()
@@ -263,7 +295,9 @@ class MainWindow(QMainWindow):
     def _failed(self, message):
         if self.closing or (self.worker and self.worker.cancel.is_set()):
             return
+        self.load_error = message
         self.notice_timer.stop()
+        self.banner.setToolTip("")
         self.banner.setText(message + (" 기존 데이터는 유지합니다." if self.batch else ""))
         self.banner.show()
         if not self.state.items:
@@ -281,12 +315,15 @@ class MainWindow(QMainWindow):
         if self.closing:
             QTimer.singleShot(0, self.close)
         elif self.worker and self.worker.cancel.is_set():
+            self.load_cancelled = True
             self.show_notice('불러오기를 취소했어요.')
             if not self.batch:
                 self.news.hide()
                 self.empty.setText('불러오기를 취소했어요')
                 self.retry_button.show()
                 self.empty.show()
+
+        self.update_empty_state()
 
     @Slot()
     def cancel_load(self):
@@ -324,10 +361,7 @@ class MainWindow(QMainWindow):
         self._display_selection(current, focus=False)
         if changed and located_ids:
             self.map.active.fit_results()
-        self.news.setVisible(bool(visible))
-        self.empty.setVisible(not visible)
-        self.empty.setText("검색 결과가 없어요" if self.state.items else "아직 뉴스가 없어요")
-        self.empty_reset.setVisible(not visible and bool(self.state.items))
+        self.update_empty_state()
         active = (not all(button.isChecked() for button in self.category_buttons.values())
                   or (any(item.category not in CATEGORIES for item in self.state.items)
                       and not self.other_button.isChecked())
