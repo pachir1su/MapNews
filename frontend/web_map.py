@@ -103,6 +103,7 @@ class WebMap(QWebEngineView):
         self.current_id = None
         self.dark = False
         self.pending_focus = False
+        self.pending_view = None
         self.profile = map_profile()
         self.map_page = MapPage(self.profile, self)
         self.setPage(self.map_page)
@@ -146,6 +147,9 @@ class WebMap(QWebEngineView):
         self.set_items(self.rows)
         self.set_theme(self.dark)
         self.set_selected(self.current_id, self.pending_focus)
+        if self.pending_view:
+            command, self.pending_view = self.pending_view, None
+            self.page().runJavaScript(command)
 
     def set_items(self, items):
         self.rows = list(items)
@@ -155,6 +159,8 @@ class WebMap(QWebEngineView):
 
     def set_selected(self, identifier, focus=False):
         self.current_id, self.pending_focus = identifier, focus
+        if focus:
+            self.pending_view = None
         if self.ready:
             self.page().runJavaScript(js_call("selectNews", {"id": identifier, "focus": focus}))
 
@@ -164,16 +170,21 @@ class WebMap(QWebEngineView):
             self.page().runJavaScript(js_call("setTheme", dark))
 
     def home(self):
-        if self.ready:
-            self.page().runJavaScript("window.mapHome();")
+        self._view_command("window.mapHome();")
 
     def zoom(self, factor):
         if self.ready:
             self.page().runJavaScript("window.mapZoom(1);" if factor > 1 else "window.mapZoom(-1);")
 
     def fit_results(self):
+        self._view_command('window.fitNews();')
+
+    def _view_command(self, command):
+        self.pending_focus = False
         if self.ready:
-            self.page().runJavaScript('window.fitNews();')
+            self.page().runJavaScript(command)
+        else:
+            self.pending_view = command
 
     def shutdown(self):
         if self.stopped:

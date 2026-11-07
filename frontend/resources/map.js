@@ -87,6 +87,8 @@
         });
         const marker = markers.get(selected);
         if (marker && value.focus) {
+            map.stop();
+            map.setView(marker.getLatLng(), Math.max(map.getZoom(), 11), {animate: false});
             cluster.zoomToShowLayer(marker, function () {
                 if (markers.get(selected) !== marker) return;
 

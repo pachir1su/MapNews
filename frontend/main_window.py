@@ -30,6 +30,7 @@ class MainWindow(QMainWindow):
         self.closing = False
         self.batch = None
         self.category_buttons = {}
+        self._map_result_ids = None
         self._shortcuts = []
         root = QWidget()
         layout = QVBoxLayout(root)
@@ -316,8 +317,13 @@ class MainWindow(QMainWindow):
             index = next(i for i, item in enumerate(visible) if item.id == current.id)
             self.news.setCurrentIndex(self.model.index(index))
         selection.blockSignals(False)
+        located_ids = frozenset(item.id for item in visible if item.has_coordinates)
+        changed = self._map_result_ids is not None and located_ids != self._map_result_ids
+        self._map_result_ids = located_ids
         self.map.set_items(visible)
         self._display_selection(current, focus=False)
+        if changed and located_ids:
+            self.map.active.fit_results()
         self.news.setVisible(bool(visible))
         self.empty.setVisible(not visible)
         self.empty.setText("검색 결과가 없어요" if self.state.items else "아직 뉴스가 없어요")
