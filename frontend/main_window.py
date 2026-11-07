@@ -96,6 +96,7 @@ class MainWindow(QMainWindow):
         self.sidebar = self._sidebar()
         self.detail = DetailPanel()
         self.detail.back.connect(self.dismiss_detail)
+        self.detail.navigate.connect(self.navigate_article)
         self.panel_stack.addWidget(self.sidebar)
         self.panel_stack.addWidget(self.detail)
         self.map = MapPanel(online=online)
@@ -366,11 +367,23 @@ class MainWindow(QMainWindow):
 
     def _display_selection(self, item, focus):
         self.detail.set_item(item)
+        ids = [row.id for row in self.model.items]
+        index = ids.index(item.id) if item and item.id in ids else -1
+        self.detail.set_navigation(index > 0, 0 <= index < len(ids) - 1)
         self.map.set_selected(item.id if item else None, focus)
 
     def _map_selected(self, identifier):
         self.select_news(identifier)
         if self.state.selected_id == identifier:
+            self.show_detail()
+
+    def navigate_article(self, offset):
+        ids = [item.id for item in self.model.items]
+        if self.state.selected_id not in ids:
+            return
+        index = ids.index(self.state.selected_id) + offset
+        if 0 <= index < len(ids):
+            self.select_news(ids[index])
             self.show_detail()
 
     def locate_news(self, identifier):
