@@ -1,5 +1,7 @@
 """QtWebEngine isolation and a small, validated QtWebChannel bridge."""
-from PySide6.QtCore import QObject, QThread, QTimer, QUrl, Signal, Slot
+from pathlib import Path
+from PySide6.QtCore import QObject, QStandardPaths, QThread, QTimer, QUrl, Signal, Slot
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineCore import (QWebEnginePage, QWebEngineProfile,
                                     QWebEngineSettings, QWebEngineUrlRequestInterceptor)
@@ -21,8 +23,32 @@ class RequestPolicy(QWebEngineUrlRequestInterceptor):
         info.block(not permitted)
 
 
+def map_profile():
+    """One app-owned profile: reuse HTTP tile cache across map switches and launches."""
+    app = QApplication.instance()
+    profile = getattr(app, '_mapnews_profile', None)
+    if profile is None:
+        profile = QWebEngineProfile('MapNewsTiles', app)
+        cache = Path(QStandardPaths.writableLocation(QStandardPaths.CacheLocation)) / 'map-tiles'
+        storage = Path(QStandardPaths.writableLocation(QStandardPaths.AppLocalDataLocation)) / 'map-profile'
+        profile.setCachePath(str(cache))
+        profile.setPersistentStoragePath(str(storage))
+        profile.setHttpCacheType(QWebEngineProfile.DiskHttpCache)
+        profile.setHttpCacheMaximumSize(64 * 1024 * 1024)
+        profile.setPersistentCookiesPolicy(QWebEngineProfile.NoPersistentCookies)
+        profile.setHttpUserAgent(profile.httpUserAgent() + ' MapNews/1.0 (+https://github.com/pachir1su/MapNews)')
+        profile.request_policy = RequestPolicy(profile)
+        profile.setUrlRequestInterceptor(profile.request_policy)
+        app._mapnews_profile = profile
+    return profile
+
+
 class MapPage(QWebEnginePage):
     def acceptNavigationRequest(self, url, kind, is_main_frame):
+        if (kind == QWebEnginePage.NavigationTypeLinkClicked
+                and url.toString() == 'https://www.openstreetmap.org/copyright'):
+            QDesktopServices.openUrl(url)
+            return False
         return url.scheme() in {"about", "data", "qrc"}
 
 
@@ -77,11 +103,8 @@ class WebMap(QWebEngineView):
         self.current_id = None
         self.dark = False
         self.pending_focus = False
-        self.profile = QWebEngineProfile(QApplication.instance())
-        self.policy = RequestPolicy(self.profile)
-        self.profile.setUrlRequestInterceptor(self.policy)
+        self.profile = map_profile()
         self.map_page = MapPage(self.profile, self)
-        self.map_page.destroyed.connect(self.profile.deleteLater)
         self.setPage(self.map_page)
         self.settings().setAttribute(QWebEngineSettings.LocalContentCanAccessRemoteUrls, True)
         self.settings().setAttribute(QWebEngineSettings.LocalContentCanAccessFileUrls, False)

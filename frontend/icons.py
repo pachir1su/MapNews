@@ -1,23 +1,42 @@
-"""Small original vector icons; no emoji glyphs or external asset requests."""
+"""Bundled Lucide SVGs shared by Qt controls, list rows and Leaflet markers."""
+from functools import lru_cache
+from pathlib import Path
 from PySide6.QtCore import QByteArray
 from PySide6.QtGui import QIcon, QPixmap, QPainter
 from PySide6.QtSvg import QSvgRenderer
 from .themes import tokens
 
-PATHS = {
-    "refresh": '<path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-1l2 3M4 15l2 3a7 7 0 0 0 12-1"/>',
-    "more": '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
-}
+ICON_DIR = Path(__file__).parent / 'resources' / 'icons'
+CATEGORY_ICONS = {'사고': 'triangle-alert', '화재': 'flame', '교통': 'car-front',
+                  '행사': 'calendar-days', '사회': 'users-round'}
+ALIASES = {'refresh': 'refresh-cw', 'more': 'ellipsis', 'back': 'arrow-left',
+           'filter': 'sliders-horizontal', 'home': 'locate-fixed', 'fit': 'maximize'}
 
 
-def icon(name, dark=False):
-    svg = (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" '
-           f'fill="none" stroke="{tokens(dark)["muted"]}" stroke-width="1.8" '
-           f'stroke-linecap="round" stroke-linejoin="round">{PATHS[name]}</svg>')
+@lru_cache(maxsize=96)
+def svg_text(name: str, color: str) -> str:
+    name = ALIASES.get(name, name)
+    # Only our registry reaches filesystem paths; news never supplies asset markup.
+    if name not in {*CATEGORY_ICONS.values(), *ALIASES.values(), 'map-pin', 'layers',
+                    'plus', 'minus', 'x', 'search', 'arrow-up-right'}:
+        name = 'map-pin'
+    return (ICON_DIR / f'{name}.svg').read_text(encoding='utf-8').replace('currentColor', color)
+
+
+@lru_cache(maxsize=96)
+def renderer(name: str, color: str):
+    return QSvgRenderer(QByteArray(svg_text(name, color).encode()))
+
+
+def icon(name: str, dark=False, color=None):
     image = QPixmap(48, 48)
-    image.fill("transparent")
+    image.fill('transparent')
     painter = QPainter(image)
-    QSvgRenderer(QByteArray(svg.encode())).render(painter)
+    renderer(name, color or tokens(dark)['muted']).render(painter)
     painter.end()
     image.setDevicePixelRatio(2)
     return QIcon(image)
+
+
+def category_icon(category, color='#ffffff'):
+    return renderer(CATEGORY_ICONS.get(category, 'map-pin'), color)

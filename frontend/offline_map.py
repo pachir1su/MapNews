@@ -4,6 +4,7 @@ from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QPainter, QPen, QPainterPath
 from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsScene, QGraphicsView, QMenu
 from .themes import tokens
+from .icons import category_icon
 from .map_data import load_outlines, load_boundaries
 
 
@@ -25,7 +26,7 @@ def cluster_points(items, scale: float, radius: float = 36):
 
 class Marker(QGraphicsEllipseItem):
     def __init__(self, view, items):
-        size = 34 if len(items) > 1 else 24
+        size = 38 if len(items) > 1 else 32
         super().__init__(-size / 2, -size / 2, size, size)
         self.view, self.items = view, items
         self.setFlag(self.GraphicsItemFlag.ItemIgnoresTransformations)
@@ -49,8 +50,10 @@ class Marker(QGraphicsEllipseItem):
         font.setBold(True)
         font.setPixelSize(12)
         painter.setFont(font)
-        painter.drawText(self.rect(), Qt.AlignCenter,
-                         str(len(self.items)) if len(self.items) > 1 else self.items[0].category[0])
+        if len(self.items) > 1:
+            painter.drawText(self.rect(), Qt.AlignCenter, str(len(self.items)))
+        else:
+            category_icon(self.items[0].category).render(painter, self.rect().adjusted(7, 7, -7, -7))
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -147,7 +150,7 @@ class OfflineMap(QGraphicsView):
             for suffix in ('특별자치도', '특별자치시', '통합특별시', '특별시', '광역시'):
                 name = name.replace(suffix, '')
             name = {'경기도': '경기', '충청북도': '충북', '충청남도': '충남',
-                    '경상북도': '경북', '경상남도': '경남', '전남광주': '전남·광주'}.get(name, name)
+                    '경상북도': '경북', '경상남도': '경남', '전남광주': '전남'}.get(name, name)
             note = self.scene().addSimpleText(name)
             note.setBrush(QColor(t["muted"]))
             note.setPos(project(lat, lon))

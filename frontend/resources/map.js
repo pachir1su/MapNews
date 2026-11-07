@@ -4,9 +4,36 @@
     const map = __MAP__;
     const cluster = __CLUSTER__;
     const markers = new Map();
+    const icons = __ICONS__;
+    map.attributionControl.setPrefix(false);
+    cluster.options.iconCreateFunction = function (group) {
+        const count = document.createElement('span');
+        count.textContent = String(group.getChildCount());
+        return L.divIcon({html:count, className:'news-cluster', iconSize:[40,40]});
+    };
     let bridge = null;
     let selected = null;
     let tileErrors = 0;
+    let tileLoaded = false;
+    let tileTimedOut = false;
+    map.eachLayer(function (layer) {
+        if (layer instanceof L.TileLayer) {
+            const timeout = setTimeout(function () {
+                if (!tileLoaded) {
+                    tileTimedOut = true;
+                    if (bridge) bridge.mapFailed('tiles');
+                }
+            }, 12000);
+            layer.on("tileerror", function () {
+                if (++tileErrors === 4 && bridge) bridge.mapFailed("지도 타일을 불러오지 못했습니다.");
+            });
+            layer.on("tileload", function () {
+                tileErrors = 0;
+                tileLoaded = true;
+                clearTimeout(timeout);
+            });
+        }
+    });
     window.mapReady = false;
     map.createPane('boundaries');
     map.getPane('boundaries').style.zIndex = 350;
@@ -18,11 +45,11 @@
     }
     const [adm1, adm2] = await Promise.all([geometry('__ADM1__'), geometry('__ADM2__')]);
     const districts = L.geoJSON(adm2, {pane: 'boundaries', interactive: false,
-        style: {color: '#8799ad', weight: 0.8, fill: false, opacity: 0.65, className: 'district-boundary'}});
+        style: {color: '#8799ad', weight: 0.7, fill: false, opacity: 0.35, className: 'district-boundary'}});
     const provinces = L.geoJSON(adm1, {pane: 'boundaries', interactive: false,
-        style: {color: '#64748b', weight: 1.5, fill: false, opacity: 0.85, className: 'province-boundary'}}).addTo(map);
+        style: {color: '#64748b', weight: 1.0, fill: false, opacity: 0.45, className: 'province-boundary'}}).addTo(map);
     function updateBoundaries() {
-        if (map.getZoom() >= 9) districts.addTo(map);
+        if (map.getZoom() >= 10) districts.addTo(map);
         else map.removeLayer(districts);
     }
     map.on('zoomend', updateBoundaries);
@@ -36,18 +63,14 @@
             const pin = document.createElement("div");
             pin.className = "news-pin";
             pin.style.backgroundColor = row.color;
-            pin.textContent = row.category.slice(0, 1);
-            // Leaflet DOM nodes/textContent keep all news strings out of HTML parsing.
-            const card = document.createElement("div");
-            const title = document.createElement("strong");
-            title.textContent = row.title;
-            const location = document.createElement("p");
-            location.textContent = row.category + " · " + row.location;
-            card.append(title, location);
+            const glyph = document.createElement('img');
+            glyph.src = icons[row.icon] || icons['map-pin'];
+            glyph.alt = row.category;
+            pin.append(glyph);
             const marker = L.marker([row.latitude, row.longitude], {
-                icon: L.divIcon({html: pin, className: "", iconSize: [26, 26]}),
+                icon: L.divIcon({html: pin, className: "", iconSize: [34, 34]}),
                 title: row.title, keyboard: true
-            }).bindPopup(card);
+            });
             marker.on("click", function () {
                 if (bridge) bridge.selectNews(row.id);
             });
@@ -66,7 +89,7 @@
         if (marker && value.focus) {
             cluster.zoomToShowLayer(marker, function () {
                 if (markers.get(selected) !== marker) return;
-                marker.openPopup();
+
                 const el = marker.getElement();
                 if (el) el.classList.add("news-selected");
             });
@@ -88,17 +111,10 @@
         }
     };
     window.mapZoom = function (delta) { map.setZoom(map.getZoom() + delta); };
-    map.eachLayer(function (layer) {
-        if (layer instanceof L.TileLayer) {
-            layer.on("tileerror", function () {
-                if (++tileErrors === 4 && bridge) bridge.mapFailed("지도 타일을 불러오지 못했습니다.");
-            });
-            layer.on("tileload", function () { tileErrors = 0; });
-        }
-    });
     new QWebChannel(qt.webChannelTransport, function (channel) {
         bridge = channel.objects.newsBridge;
         window.mapReady = true;
         bridge.ready();
+        if (tileErrors >= 4 || tileTimedOut) bridge.mapFailed('tiles');
     });
 })();

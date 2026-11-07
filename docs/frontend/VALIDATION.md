@@ -1,3 +1,14 @@
+# 현재 변경의 검증 상태
+
+**이번 최소 UI / OpenStreetMap 기본값 개편은 테스트하지 않았습니다.** 사용자 요청에 따라
+개발만 수행하고 Windows/Linux 실행, pytest, CI를 진행하지 않았습니다.
+현재 테스트 담당자 인계 내용은 [QA_HANDOFF.md](QA_HANDOFF.md)에 있습니다.
+
+아래 결과와 screenshots/ 이미지는 **이전 커밋 `978b88f9d4abe3d70842b718e19b309182f20ca3`까지의 기록**입니다.
+현재 2단 화면·SVG 마커·OpenStreetMap 기본값을 검증한 결과나 최신 화면이 아닙니다.
+
+---
+
 # 검증 기록
 
 검증일: 2026-11-07 KST. 이 문서는 실측 결과와 미검증 범위를 구분한다.
@@ -22,7 +33,7 @@ pytest 8.3.5, pytest-qt 4.4.0. Qt offscreen 플랫폼, 실제 QtWebEngine/Chromi
 검증 커밋 `ab5c2422643a5ed99869ef0a3cdee985436c3d93`.
 **Ubuntu/Python 3.11 및 Windows/Python 3.12 모두 전체 테스트, HiDPI GUI, Ruff, compileall 통과**.
 각 OS의 화면 캡처와 JUnit XML은 해당 실행의 `frontend-review-*` artifact에 포함된다.
-후속 커밋의 결과는 PR checks에서 확인한다.
+이번 변경에서는 CI를 실행하지 않았다. 이전 결과를 후속 커밋에 적용하지 않는다.
 
 PR #1과는 README 변경 영역이 겹친다. PR #1을 병합하지 않았으며, 두 PR을 함께 반영할 때는
 공식 제목과 확장된 실행 안내를 유지하는 방향으로 README 충돌을 정리하면 된다.

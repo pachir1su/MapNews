@@ -7,13 +7,14 @@ import folium
 from folium.plugins import MarkerCluster
 from branca.element import Element, MacroElement, Template
 from .map_data import load_boundaries, boundary_geojson
+from .icons import CATEGORY_ICONS, svg_text
 
 RESOURCES = Path(__file__).parent / "resources"
 
 
 def marker_payload(items):
     return [dict(id=n.id, title=n.title, category=n.category, location=n.location,
-                 latitude=n.latitude, longitude=n.longitude, color=n.color)
+                 latitude=n.latitude, longitude=n.longitude, color=n.color, icon=CATEGORY_ICONS.get(n.category, 'map-pin'))
             for n in items if n.has_coordinates]
 
 
@@ -26,7 +27,7 @@ def js_call(function: str, value) -> str:
 def build_map_html(*, online_tiles: bool = True) -> str:
     map_view = folium.Map(location=[36.0, 127.6], zoom_start=7, max_zoom=19,
                           tiles="OpenStreetMap" if online_tiles else None,
-                          control_scale=True, prefer_canvas=True)
+                          control_scale=False, zoom_control=False, prefer_canvas=True)
     # Folium's max_zoom argument configures tiles, not the tile-free map itself.
     map_view.options['maxZoom'] = 19
     map_view.default_js = []
@@ -52,17 +53,25 @@ def build_map_html(*, online_tiles: bool = True) -> str:
     root.header.add_child(Element('<script src="qrc:///qtwebchannel/qwebchannel.js"></script>'))
     root.header.add_child(Element("""
     <style>
-    .news-pin { border:2px solid white; border-radius:50%; width:26px!important;
-      height:26px!important; color:white; font:bold 12px sans-serif;
+    .news-pin { border:2px solid white; border-radius:50%; width:34px!important;
+      height:34px!important; color:white; box-sizing:border-box;
       display:flex; align-items:center; justify-content:center;
       box-shadow:0 2px 9px #17253d55; }
+    .news-pin img { width:19px; height:19px; pointer-events:none; }
     .news-selected { outline:4px solid #3182f6; outline-offset:3px; }
     .map-dark .leaflet-tile-pane { filter:brightness(.65) saturate(.65); }
-    .leaflet-popup-content { font:14px sans-serif; max-width:280px; }
+    .news-cluster { border:3px solid white; border-radius:50%; background:#2465c4;
+      color:white; font:600 14px sans-serif; display:flex; align-items:center; justify-content:center;
+      box-shadow:0 2px 8px #18233422; box-sizing:border-box; }
+    .leaflet-control-attribution { font-size:10px; }
+    .map-dark .leaflet-container { background:#15191f; }
     </style>
     """))
     script = (RESOURCES / "map.js").read_text(encoding="utf-8")
     script = script.replace("__MAP__", map_view.get_name()).replace("__CLUSTER__", cluster.get_name())
+    assets = {name: 'data:image/svg+xml;base64,' + base64.b64encode(svg_text(name, '#ffffff').encode()).decode()
+              for name in {*CATEGORY_ICONS.values(), 'map-pin'}}
+    script = script.replace('__ICONS__', json.dumps(assets))
     levels, _ = load_boundaries()
     for level in ('adm1', 'adm2'):
         payload = json.dumps(boundary_geojson(levels[level]), ensure_ascii=True, separators=(',', ':'))

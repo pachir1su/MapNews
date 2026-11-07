@@ -39,7 +39,13 @@ def apply_theme(app, dark: bool):
               font-size: 14px; color: %(text)s; }
     QMainWindow, QDialog { background: %(bg)s; }
     QFrame#panel, QWidget#panel { background: %(panel)s; border: none; border-radius: 16px; }
-    QFrame#header { background: %(panel)s; border: none; }
+    QFrame#header { background: %(panel)s; border: none; border-bottom: 1px solid %(border)s; }
+    QFrame#sidebar { background: %(panel)s; border: none; }
+    QFrame#mapSurface { background: %(map)s; border: none; }
+    QWidget#mapControls { background: transparent; }
+    QToolButton#mapControl { background: %(panel)s; border: 1px solid %(border)s; padding: 0; }
+    QToolButton#mapControl:hover { background: %(selected)s; }
+    QComboBox#sort { background: transparent; border: none; padding-left: 8px; }
     QLabel { background: transparent; }
     QWidget#detailContent { background: %(panel)s; }
     QLabel#brand { font-size: 23px; font-weight: 700; }
@@ -48,7 +54,6 @@ def apply_theme(app, dark: bool):
     QLabel#articleTitle { font-size: 24px; font-weight: 700; }
     QLabel#summary { font-size: 15px; }
     QLabel#badge { color: %(accent)s; font-weight: 600; }
-    QLabel#source { color: %(muted)s; background: %(input)s; border-radius: 6px; padding: 4px 8px; font-size: 12px; }
     QLabel#notice { background: %(selected)s; color: %(text)s; border-radius: 10px; padding: 10px 16px; }
     QLineEdit, QComboBox { background: %(input)s; border: 1px solid transparent;
                           border-radius: 10px; padding: 9px 12px; min-height: 20px; }
@@ -61,6 +66,8 @@ def apply_theme(app, dark: bool):
     QPushButton:focus, QLineEdit:focus, QComboBox:focus { border: 2px solid %(accent)s; }
     QPushButton:checked { background: %(selected)s; color: %(accent)s; font-weight: 600; }
     QPushButton#quiet { background: transparent; color: %(muted)s; }
+    QToolButton { padding: 0; }
+    QToolButton:focus { border: 2px solid %(accent)s; }
     QToolButton::menu-indicator { image: none; }
     QPushButton:disabled { color: %(muted)s; }
     QPushButton#primary { background: %(primary)s; color: white; font-weight: 600; }
@@ -74,6 +81,6 @@ def apply_theme(app, dark: bool):
     QScrollBar:vertical { background: transparent; width: 8px; margin: 2px; }
     QScrollBar::handle:vertical { background: %(border)s; border-radius: 3px; min-height: 25px; }
     QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
-    QSplitter::handle { background: transparent; width: 8px; }
+    QSplitter::handle { background: %(border)s; width: 1px; }
     QToolTip { background: %(panel)s; color: %(text)s; border: 1px solid %(border)s; padding: 6px; }
     """ % t)

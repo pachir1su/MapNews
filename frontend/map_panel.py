@@ -1,6 +1,9 @@
-from PySide6.QtCore import QTimer, Signal
-from PySide6.QtWidgets import QComboBox, QFrame, QHBoxLayout, QPushButton, QStackedWidget, QVBoxLayout
-from .detail import label
+"""Map-first surface: quiet floating controls and a discoverable fallback menu."""
+from PySide6.QtCore import QSize, QTimer, Signal, Qt
+from PySide6.QtGui import QActionGroup
+from PySide6.QtWidgets import (QFrame, QGridLayout, QVBoxLayout, QToolButton,
+                               QStackedWidget, QMenu, QWidget)
+from .icons import icon
 from .offline_map import OfflineMap
 
 
@@ -8,55 +11,78 @@ class MapPanel(QFrame):
     selected = Signal(str)
     notice = Signal(str)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, online=True):
         super().__init__(parent)
-        self.setObjectName("panel")
+        self.setObjectName('mapSurface')
         self.rows = []
         self.current_id = None
         self.dark = False
         self.web = None
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 12)
-        toolbar = QHBoxLayout()
-        toolbar.addWidget(label("뉴스 지도", "heading"))
-        toolbar.addStretch()
-        self.mode = QComboBox()
-        self.mode.addItems(["기본 지도", "온라인 지도"])
-        self.mode.setToolTip("기본 지도는 오프라인 사용 가능 · 온라인 지도는 인터넷 필요")
-        self.mode.setAccessibleName("지도 표시 방식")
-        toolbar.addWidget(self.mode)
-        for title, handler in (("−", lambda: self.active.zoom(0.8)),
-                               ("+", lambda: self.active.zoom(1.25)),
-                               ("결과", lambda: self.active.fit_results()),
-                               ("전국", lambda: self.active.home())):
-            button = QPushButton(title)
-            button.setToolTip({"−": "축소", "+": "확대", "결과": "검색 결과 전체를 지도에 맞춤",
-                               "전국": "초기 위치로 이동"}[title])
-            button.setAccessibleName(button.toolTip())
-            button.clicked.connect(handler)
-            toolbar.addWidget(button)
-        layout.addLayout(toolbar)
+        self.online = False
+        self.stopped = False
+        layout = QGridLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
         self.stack = QStackedWidget()
         self.offline = OfflineMap()
         self.offline.selected.connect(self.selected)
         self.stack.addWidget(self.offline)
-        layout.addWidget(self.stack, 1)
-        self.mode.currentIndexChanged.connect(self._mode_changed)
-        if self.offline.resource_error:
-            QTimer.singleShot(0, lambda: self.notice.emit(self.offline.resource_error))
-        if self.offline.boundary_error:
-            QTimer.singleShot(0, lambda: self.notice.emit(self.offline.boundary_error))
+        layout.addWidget(self.stack, 0, 0)
+        controls = QWidget()
+        controls.setObjectName('mapControls')
+        column = QVBoxLayout(controls)
+        column.setContentsMargins(16, 16, 16, 16)
+        column.setSpacing(8)
+        self.buttons = {}
+        for name, title, handler in (
+                ('plus', '확대', lambda: self.active.zoom(1.25)),
+                ('minus', '축소', lambda: self.active.zoom(.8)),
+                ('home', '전국 보기', lambda: self.active.home()),
+                ('fit', '검색 결과에 맞추기', lambda: self.active.fit_results())):
+            button = self._button(name, title)
+            button.clicked.connect(handler)
+            column.addWidget(button)
+        self.layer_button = self._button('layers', '지도 선택')
+        menu = QMenu(self)
+        group = QActionGroup(self)
+        self.online_action = menu.addAction('OpenStreetMap')
+        self.offline_action = menu.addAction('오프라인 지도')
+        for action in (self.online_action, self.offline_action):
+            action.setCheckable(True)
+            group.addAction(action)
+        self.offline_action.setChecked(True)
+        self.online_action.triggered.connect(lambda: self.set_online(True))
+        self.offline_action.triggered.connect(lambda: self.set_online(False))
+        self.layer_button.setMenu(menu)
+        self.layer_button.setPopupMode(QToolButton.InstantPopup)
+        column.addWidget(self.layer_button)
+        layout.addWidget(controls, 0, 0, Qt.AlignTop | Qt.AlignRight)
+        if online:
+            QTimer.singleShot(0, lambda: self.set_online(True) if not self.stopped else None)
+
+    def _button(self, name, title):
+        button = QToolButton()
+        button.setObjectName('mapControl')
+        button.setFixedSize(44, 44)
+        button.setIconSize(QSize(20, 20))
+        button.setAccessibleName(title)
+        button.setToolTip(title)
+        self.buttons[name] = button
+        return button
 
     @property
     def active(self):
-        return self.web if self.mode.currentIndex() == 1 and self.web else self.offline
+        return self.web if self.online and self.web else self.offline
 
-    def _mode_changed(self, index):
-        if index == 0:
+    def set_online(self, enabled):
+        if self.stopped or (enabled and self.online and self.web):
+            return
+        self.online = enabled
+        self.online_action.setChecked(enabled)
+        self.offline_action.setChecked(not enabled)
+        if not enabled:
             if self.web:
-                self.web.shutdown()
-                old = self.web
-                self.web = None
+                old, self.web = self.web, None
+                old.shutdown()
                 self.stack.removeWidget(old)
                 if old.builder.isRunning():
                     old.builder.finished.connect(old.deleteLater)
@@ -66,28 +92,27 @@ class MapPanel(QFrame):
             return
         try:
             from .web_map import WebMap
-            self.web = WebMap(self)
-            self.web.selected.connect(self.selected)
-            current_web = self.web
-            self.web.failed.connect(lambda reason: self._fallback(reason) if self.web is current_web else None)
-            self.stack.addWidget(self.web)
-            self.stack.setCurrentWidget(self.web)
-            self.web.set_items(self.rows)
-            self.web.set_theme(self.dark)
-            self.web.set_selected(self.current_id)
-            self.notice.emit("온라인 지도를 연결하고 있습니다…")
+            view = WebMap(self)
+            self.web = view
+            view.selected.connect(self.selected)
+            view.failed.connect(lambda reason: self._fallback(reason) if self.web is view else None)
+            self.stack.addWidget(view)
+            self.stack.setCurrentWidget(view)
+            view.set_items(self.rows)
+            view.set_theme(self.dark)
+            view.set_selected(self.current_id)
         except (ImportError, RuntimeError):
-            self._fallback("QtWebEngine을 사용할 수 없습니다.")
+            self._fallback('지도를 열 수 없어요.')
 
     def _fallback(self, reason):
-        self.mode.setCurrentIndex(0)
-        self.notice.emit(reason + " 오프라인 좌표 화면을 사용합니다.")
+        self.set_online(False)
+        self.notice.emit('오프라인 지도로 표시해요.')
 
     def set_items(self, items):
         self.rows = list(items)
-        self.offline.set_items(items)
+        self.offline.set_items(self.rows)
         if self.web:
-            self.web.set_items(items)
+            self.web.set_items(self.rows)
 
     def set_selected(self, identifier, focus=False):
         self.current_id = identifier
@@ -98,9 +123,12 @@ class MapPanel(QFrame):
     def set_theme(self, dark):
         self.dark = dark
         self.offline.set_theme(dark)
+        for name, button in self.buttons.items():
+            button.setIcon(icon(name, dark))
         if self.web:
             self.web.set_theme(dark)
 
     def shutdown(self):
         self.offline.close_picker()
-        self.mode.setCurrentIndex(0)
+        self.set_online(False)
+        self.stopped = True
