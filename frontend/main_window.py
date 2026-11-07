@@ -1,5 +1,5 @@
 """Application shell: wires views to state and provider events, without backend imports."""
-from PySide6.QtCore import QSettings, QSize, QThread, QTimer, Qt, Slot
+from PySide6.QtCore import QByteArray, QSettings, QSize, QThread, QTimer, Qt, Slot
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (QApplication, QComboBox, QFileDialog, QFrame,
                                QHBoxLayout, QListView, QMainWindow, QPushButton,
@@ -19,7 +19,7 @@ class MainWindow(QMainWindow):
     def __init__(self, provider=None, *, settings=None, auto_load=True, online=True):
         super().__init__()
         self.setWindowTitle("MapNews")
-        self.setMinimumSize(960, 640)
+        self.setMinimumSize(800, 600)
         self.resize(1500, 900)
         self.settings = settings if settings is not None else QSettings("KOREATECH-Team5", "MapNews")
         self.settings.remove("dark")
@@ -107,10 +107,13 @@ class MainWindow(QMainWindow):
         self.panel_stack.addWidget(self.sidebar)
         self.panel_stack.addWidget(self.detail)
         self.map = MapPanel(online=online)
-        self.map.setMinimumWidth(500)
+        self.map.setMinimumWidth(320)
         self.splitter.addWidget(self.panel_stack)
         self.splitter.addWidget(self.map)
         self.splitter.setSizes([370, 1100])
+        saved = self.settings.value('splitter')
+        if isinstance(saved, QByteArray):
+            self.splitter.restoreState(saved)
         self.splitter.setStretchFactor(1, 1)
         layout.addWidget(self.splitter, 1)
         self.setCentralWidget(root)
@@ -136,10 +139,34 @@ class MainWindow(QMainWindow):
             shortcut = QShortcut(QKeySequence(key), self)
             shortcut.activated.connect(handler)
             self._shortcuts.append(shortcut)
+        for key, handler in (('Ctrl+O', self.open_json), ('Ctrl+L', self.focus_list),
+                             ('Alt+Left', self.dismiss_detail),
+                             ('Alt+Up', lambda: self.navigate_article(-1)),
+                             ('Alt+Down', lambda: self.navigate_article(1))):
+            shortcut = QShortcut(QKeySequence(key), self)
+            shortcut.activated.connect(handler)
+            self._shortcuts.append(shortcut)
+        shortcut = QShortcut(QKeySequence('Down'), self.search)
+        shortcut.setContext(Qt.WidgetShortcut)
+        shortcut.activated.connect(self.focus_list)
+        self._shortcuts.append(shortcut)
         QApplication.styleHints().colorSchemeChanged.connect(self._system_theme_changed)
         self.apply_theme()
         if auto_load:
             QTimer.singleShot(0, self.reload)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, 'panel_stack'):
+            self.panel_stack.setMaximumWidth(340 if self.width() < 1100 else 440)
+
+    def focus_list(self):
+        if self.debounce.isActive():
+            self.apply_filters()
+        self.panel_stack.setCurrentWidget(self.sidebar)
+        if self.model.rowCount() and not self.news.currentIndex().isValid():
+            self.news.setCurrentIndex(self.model.index(0))
+        self.news.setFocus()
 
     def _sidebar(self):
         panel = QFrame()
@@ -444,7 +471,7 @@ class MainWindow(QMainWindow):
     def show_detail(self):
         if self.state.selected_id:
             self.panel_stack.setCurrentWidget(self.detail)
-            self.detail.back_button.setFocus()
+            self.detail.scroll.setFocus()
 
     def dismiss_detail(self):
         if self.panel_stack.currentWidget() is self.detail:
@@ -559,5 +586,6 @@ class MainWindow(QMainWindow):
                     pass
             return
         self.map.shutdown()
+        self.settings.setValue("splitter", self.splitter.saveState())
         self.settings.sync()
         event.accept()
