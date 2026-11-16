@@ -575,6 +575,7 @@ def collect_all_news():
                 "confidence": analysis["confidence"],
                 "reason": analysis["reason"],
                 "link": article["link"],
+                "body": body,
                 "candidates": analysis["candidates"]
             }
 
