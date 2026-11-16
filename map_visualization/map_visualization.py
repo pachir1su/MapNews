@@ -1,8 +1,8 @@
-
 """MapNews 지도 시각화 모듈.
 
 뉴스 수집과 Gemini 전처리는 백엔드에서 수행한다.
-이 파일은 처리된 뉴스 목록을 전달받아 HTML 지도를 생성한다.
+이 파일은 지역명을 좌표로 변환하여 프론트엔드에 전달한다.
+기존 Folium HTML 지도 생성 기능도 별도로 유지한다.
 """
 
 # ============================================================
@@ -264,7 +264,79 @@ def get_coordinates(place_name, cache):
 
 
 # ============================================================
-# 함수 5. 기본 지도 생성
+# 함수 5. 프론트엔드 전달용 뉴스 데이터 생성 [신규]
+# ============================================================
+
+def prepare_news_for_frontend(news_list):
+    """백엔드의 뉴스 목록에 위도/경도를 붙여 프론트엔드로 전달한다.
+
+    입력: 크롤링과 Gemini 분석 결과가 합쳐진 뉴스 목록
+        - 크롤링/DB 담당: id, title, url, datetime
+        - Gemini 담당: category, location, summary
+
+    출력: 다음 9개 키를 가진 딕셔너리의 리스트
+        id, title, category, location, summary, url, datetime,
+        latitude, longitude
+
+    좌표를 찾지 못해도 기사 자체는 제거하지 않는다.
+    대신 latitude와 longitude를 모두 None으로 반환한다.
+    """
+
+    # 이전 실행에서 검색한 지역 좌표를 가져온다.
+    cache = load_coordinate_cache()
+    frontend_news_list = []
+
+    # 프론트엔드가 기대하는 필드 이름을 고정한다.
+    fields = (
+        "id", "title", "category", "location", "summary",
+        "url", "datetime"
+    )
+
+    for news in news_list:
+        # sqlite3.Row와 일반 딕셔너리를 모두 처리한다.
+        try:
+            source = dict(news)
+        except (TypeError, ValueError):
+            print("올바르지 않은 뉴스 데이터를 건너뜁니다.")
+            continue
+
+        # 프론트엔드에 필요한 7개 기사 정보를 그대로 복사한다.
+        # 누락된 필드는 None이 된다. 존재하지 않는 제목이나 ID를
+        # 지도 모듈에서 임의로 만드는 것은 피한다.
+        news_data = {field: source.get(field) for field in fields}
+
+        # 기존 DB에 유효한 좌표가 있으면 우선 사용한다.
+        coordinates = parse_coordinates(
+            source.get("latitude"),
+            source.get("longitude")
+        )
+
+        # 좌표가 없는 경우에만 발생 지역을 geopy로 검색한다.
+        if coordinates is None:
+            coordinates = get_coordinates(
+                news_data.get("location"), cache
+            )
+
+        if coordinates is None:
+            # 좌표 검색 실패: 기사 목록/상세 화면은 유지하고
+            # 프론트엔드는 지도 마커만 생성하지 않도록 한다.
+            news_data["latitude"] = None
+            news_data["longitude"] = None
+        else:
+            news_data["latitude"] = coordinates[0]
+            news_data["longitude"] = coordinates[1]
+
+        frontend_news_list.append(news_data)
+
+    # 다음 실행에서 같은 지역을 재검색하지 않도록 저장한다.
+    save_coordinate_cache(cache)
+
+    # 백엔드가 이 값을 프론트엔드로 전달해야 한다.
+    return frontend_news_list
+
+
+# ============================================================
+# 함수 6. 기본 지도 생성 (기존 기능 유지)
 # ============================================================
 
 def create_base_map():
@@ -283,7 +355,7 @@ def create_base_map():
 
 
 # ============================================================
-# 함수 6. 뉴스 마커 추가
+# 함수 7. 뉴스 마커 추가 (기존 HTML 지도용)
 # ============================================================
 
 
@@ -325,18 +397,20 @@ def add_news_marker(news_map, news, cache, category_layers):
     # 2. 뉴스 발생 지역의 좌표 검색
     # ========================================================
 
-    # 지역 정보가 없다면 지도에 표시하지 않는다.
-    if not place:
-        print("지역 정보가 없는 뉴스입니다.")
-        return None
+    # 지역이 비어 있더라도 유효한 위도/경도가 있으면 표시한다.
+    # 백엔드가 미리 좌표를 채워서 전달한 경우에는
+    # geopy를 다시 호출하지 않고 그 좌표를 사용한다.
+    coordinates = parse_coordinates(
+        news.get("latitude"), news.get("longitude")
+    )
 
-    # geopy를 이용하여 지역명을 위도와 경도로 변환한다.
-    # 기존에 검색한 지역이라면 캐시된 좌표를 사용한다.
-    coordinates = get_coordinates(place, cache)
-
-    # 좌표 검색에 실패한 경우 마커를 생성하지 않는다.
+    # 좌표가 전혀 없을 때만 기존 geopy 검색을 수행한다.
     if coordinates is None:
-        print(f"좌표 검색 실패로 지도에서 제외: {place}")
+        coordinates = get_coordinates(place, cache)
+
+    # 좌표를 얻지 못한 경우에만 마커 생성을 생략한다.
+    if coordinates is None:
+        print(f"좌표 없음: {place or '지역 미상'}")
         return None
 
     # ========================================================
@@ -418,7 +492,7 @@ def add_news_marker(news_map, news, cache, category_layers):
     return coordinates
 
 # ============================================================
-# 함수 7. 전체 뉴스 지도 생성
+# 함수 8. 전체 뉴스 지도 생성 (기존 HTML 지도용)
 # ============================================================
 
 def create_news_map(news_list, output_file=MAP_FILE):
@@ -537,10 +611,8 @@ def create_news_map(news_list, output_file=MAP_FILE):
 
 if __name__ == "__main__":
 
-    # 아직 뉴스 수집 및 전처리 코드가 연결되지 않았으므로
-    # 빈 리스트를 전달하여 기본 지도만 생성한다.
-    #
-    # 다른 팀원의 백엔드가 완성되면
-    # 해당 뉴스 목록을 create_news_map()에 전달하면 된다.
-
+    # 이 파일을 직접 실행하면 현재처럼 빈 지도가 생성된다.
+    # 프론트엔드 연동에서는 이 함수 대신
+    # prepare_news_for_frontend(news_list)를 호출한다.
+    # 예시 뉴스 데이터는 코드에 넣지 않는다.
     create_news_map([])
