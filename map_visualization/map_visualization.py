@@ -18,9 +18,6 @@ from html import escape
 # 운영체제와 관계없이 파일 경로 지정
 from pathlib import Path
 
-# 뉴스 URL이 웹 주소인지 확인
-from urllib.parse import urlparse
-
 import folium  # 지도, 마커, 팝업 생성
 
 # 좌표 검색 요청 속도 제한
@@ -50,16 +47,21 @@ MAP_CENTER = [36.5, 127.8]
 MAP_ZOOM = 7
 
 
-# 카테고리에 따라 마커 색상을 구분한다.
-# 팀원과 카테고리 이름을 협의한 뒤 수정할 수 있다.
+# Gemini API에서 분류한 뉴스 카테고리에 따라
+# 지도 위의 마커 색상을 구분한다.
+#
+# Gemini API가 반환하는 카테고리:
+# 사고, 화재, 교통, 행사, 사회
+#
+# 카테고리 이름은 백엔드와 동일하게 사용해야 한다.
+
 CATEGORY_COLORS = {
-    "정치": "red",
-    "경제": "green",
-    "사회": "blue",
-    "문화": "purple",
-    "IT/과학": "orange",
-    "국제": "cadetblue",
-    "스포츠": "darkpurple",
+    "사고": "red",       # 사고 관련 뉴스: 빨간색
+    "화재": "orange",    # 화재 관련 뉴스: 주황색
+    "교통": "blue",      # 교통 관련 뉴스: 파란색
+    "행사": "green",     # 행사 관련 뉴스: 초록색
+    "사회": "purple",    # 사회 관련 뉴스: 보라색
+    "미분류": "gray"     # 분류할 수 없는 뉴스: 회색
 }
 
 
@@ -284,34 +286,137 @@ def create_base_map():
 # 함수 6. 뉴스 마커 추가
 # ============================================================
 
+
 def add_news_marker(news_map, news, cache, category_layers):
     """
-    전처리가 끝난 뉴스 1건을 지도에 표시한다.
+    Gemini API가 분석한 뉴스 정보를 지도에 표시한다.
 
-    백엔드에서 전달받을 뉴스 데이터 항목:
+    전달받는 데이터 형식:
+    {
+        "location": "충남 천안시 서북구",
+        "category": "사고",
+        "summary": "차량 3대가 연쇄 추돌했으며..."
+    }
 
-    title     : 뉴스 제목
-    date      : 뉴스 발생 날짜
-    location  : 실제 사건 발생 지역
-    category  : Gemini가 분류한 카테고리
-    url       : 뉴스 원문 링크
-
-    latitude  : 위도 (선택)
-    longitude : 경도 (선택)
+    location : 사건이 발생한 지역
+    category : Gemini가 분류한 뉴스 카테고리
+    summary  : Gemini가 생성한 뉴스 요약
     """
 
-    # 뉴스 정보 가져오기
-    # get()은 해당 키가 없으면 기본값을 반환할 수 있다.
-    title = str(news.get("title") or "제목 없음")
-    date = str(news.get("date") or "날짜 미상")
+    # ========================================================
+    # 1. Gemini 분석 결과 가져오기
+    # ========================================================
+
+    # 뉴스 발생 지역
+    # 지역 정보가 없으면 빈 문자열로 처리한다.
     place = str(news.get("location") or "").strip()
 
-    category = (
-        str(news.get("category") or "미분류").strip()
-        or "미분류"
+    # 뉴스 카테고리
+    # 카테고리가 없으면 "미분류"로 설정한다.
+    category = str(news.get("category") or "미분류").strip()
+
+    # Gemini가 생성한 뉴스 요약
+    # 요약이 없으면 기본 안내 문구를 사용한다.
+    summary = str(
+        news.get("summary") or "요약 정보 없음"
+    ).strip()
+
+    # ========================================================
+    # 2. 뉴스 발생 지역의 좌표 검색
+    # ========================================================
+
+    # 지역 정보가 없다면 지도에 표시하지 않는다.
+    if not place:
+        print("지역 정보가 없는 뉴스입니다.")
+        return None
+
+    # geopy를 이용하여 지역명을 위도와 경도로 변환한다.
+    # 기존에 검색한 지역이라면 캐시된 좌표를 사용한다.
+    coordinates = get_coordinates(place, cache)
+
+    # 좌표 검색에 실패한 경우 마커를 생성하지 않는다.
+    if coordinates is None:
+        print(f"좌표 검색 실패로 지도에서 제외: {place}")
+        return None
+
+    # ========================================================
+    # 3. 지도 팝업에 표시할 정보 생성
+    # ========================================================
+
+    # 외부에서 받은 데이터의 HTML 특수문자를 변환한다.
+    # 의도하지 않은 HTML 코드가 실행되는 것을 방지한다.
+    safe_place = escape(place)
+    safe_category = escape(category)
+
+    # Gemini 요약에 줄바꿈이 존재할 경우
+    # HTML에서도 줄바꿈이 보이도록 변환한다.
+    safe_summary = escape(summary).replace("\n", "<br>")
+
+    # 마커를 클릭하면 나타나는 정보창의 내용이다.
+    popup_html = (
+        f"<b>뉴스 발생 지역</b><br>"
+        f"{safe_place}<br><br>"
+
+        f"<b>카테고리</b><br>"
+        f"{safe_category}<br><br>"
+
+        f"<b>뉴스 요약</b><br>"
+        f"{safe_summary}"
     )
 
-    url = str(news.get("url") or "").strip()
+    # ========================================================
+    # 4. 카테고리별 지도 레이어 생성
+    # ========================================================
+
+    # 해당 카테고리의 그룹이 아직 없다면
+    # 새로운 FeatureGroup을 생성한다.
+    if category not in category_layers:
+
+        layer = folium.FeatureGroup(
+            name=escape(category),
+            show=True
+        )
+
+        # 카테고리 그룹을 지도에 추가한다.
+        layer.add_to(news_map)
+
+        # 생성한 그룹을 딕셔너리에 저장한다.
+        category_layers[category] = layer
+
+    # 카테고리에 해당하는 마커 색상을 가져온다.
+    # CATEGORY_COLORS는 앞서 변경한 설정을 그대로 사용한다.
+    marker_color = CATEGORY_COLORS.get(category, "gray")
+
+    # ========================================================
+    # 5. 지도 마커 생성
+    # ========================================================
+
+    # geopy로 찾은 좌표에 마커를 생성한다.
+    folium.Marker(
+
+        # 마커가 표시될 위도와 경도
+        location=coordinates,
+
+        # 클릭 시 뉴스 발생 지역, 카테고리, 요약 표시
+        popup=folium.Popup(
+            popup_html,
+            max_width=350
+        ),
+
+        # 마커 위에 마우스를 올렸을 때 지역명 표시
+        tooltip=folium.Tooltip(safe_place),
+
+        # 뉴스 카테고리에 따라 마커 색상 구분
+        icon=folium.Icon(
+            color=marker_color,
+            icon="info-sign"
+        )
+
+    ).add_to(category_layers[category])
+
+    # 마커 생성에 성공했다면 좌표를 반환한다.
+    return coordinates
+
 
     # --------------------------------------------------------
     # 6-1. 뉴스 발생 위치 확인
