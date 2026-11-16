@@ -584,10 +584,10 @@ def collect_all_news():
                 "id": f"{len(all_articles) + 1}",
                 "title": article["title"],
                 "category": category,
-                "datetime": format_date(article["date"]),
                 "location": analysis["region"],
-                "url": article["link"],
                 "summary": body,
+                "url": article["link"],
+                "datetime": format_date(article["date"]),
             }
 
             all_articles.append(result)
