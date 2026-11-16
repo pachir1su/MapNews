@@ -568,14 +568,13 @@ def collect_all_news():
             )
 
             result = {
+                "id": f"{len(all_articles) + 1}",
                 "title": article["title"],
                 "category": category,
-                "date": article["date"],
-                "region": analysis["region"],
-                "confidence": analysis["confidence"],
-                "reason": analysis["reason"],
-                "link": article["link"],
-                "body": body,
+                "datetime": article["date"],
+                "location": analysis["region"],
+                "url": article["link"],
+                "summary": body,
                 "candidates": analysis["candidates"]
             }
 
@@ -602,18 +601,16 @@ def main():
 
     for article in results:
 
-        if article["region"] is None:
+        if article["location"] is None:
             continue
 
         output_count += 1
 
         print("\n기사 제목:", article["title"])
         print("분야:", article["category"])
-        print("발행일:", article["date"])
-        print("지역:", article["region"])
-        print("신뢰도:", article["confidence"])
-        print("이유:", article["reason"])
-        print("링크:", article["link"])
+        print("발행일:", article["datetime"])
+        print("지역:", article["location"])
+        print("링크:", article["url"])
 
     with open("news_results.json", "w", encoding="utf-8") as f:
         json.dump(results, f, ensure_ascii=False, indent=4)
