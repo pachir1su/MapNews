@@ -6,6 +6,7 @@ import html
 import re
 import json
 import time
+from datetime import datetime
 
 
 # ==========================================
@@ -385,6 +386,18 @@ def parse_rss(data):
 
     return articles
 
+def format_date(date_text):
+    try:
+        date = datetime.strptime(
+            date_text,
+            "%a, %d %b %Y %H:%M:%S %z"
+        )
+
+        return date.strftime("%Y-%m-%d %H:%M")
+
+    except ValueError:
+        return date_text
+
 
 # ==========================================
 # 7. 기사 본문 가져오기
@@ -571,11 +584,10 @@ def collect_all_news():
                 "id": f"{len(all_articles) + 1}",
                 "title": article["title"],
                 "category": category,
-                "datetime": article["date"],
+                "datetime": format_date(article["date"]),
                 "location": analysis["region"],
                 "url": article["link"],
                 "summary": body,
-                "candidates": analysis["candidates"]
             }
 
             all_articles.append(result)
