@@ -138,7 +138,7 @@ class MainWindow(QMainWindow):
         self.map.notice.connect(self.show_notice)
         self.detail.locate.connect(self.locate_news)
         self.detail.notice.connect(self.show_notice)
-        for key, handler in (("Ctrl+K", self.search.setFocus), ("Ctrl+F", self.search.setFocus),
+        for key, handler in (("Ctrl+K", self.focus_search), ("Ctrl+F", self.focus_search),
                              ("F5", self.reload), ("Ctrl+Return", self.show_detail),
                              ("Escape", self.dismiss_detail)):
             shortcut = QShortcut(QKeySequence(key), self)
@@ -166,6 +166,10 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'panel_stack'):
             self.panel_stack.setMaximumWidth(340 if self.width() < 1100 else 440)
 
+    def focus_search(self):
+        self.search.setFocus(Qt.ShortcutFocusReason)
+        self.search.selectAll()
+
     def focus_list(self):
         if self.debounce.isActive():
             self.apply_filters()
@@ -187,6 +191,9 @@ class MainWindow(QMainWindow):
         self.sort.setAccessibleName("기사 정렬")
         self.sort.currentIndexChanged.connect(self.apply_filters)
         toolbar.addWidget(self.sort)
+        self.news_count = label("0건", "newsCount")
+        self.news_count.setAccessibleName("검색 결과 건수")
+        toolbar.addWidget(self.news_count)
         toolbar.addStretch()
         self.saved_button = QToolButton()
         self.saved_button.setFixedSize(40, 40)
@@ -242,6 +249,8 @@ class MainWindow(QMainWindow):
         self.news.setUniformItemSizes(True)
         self.news.setMouseTracking(True)
         self.news.setVerticalScrollMode(QListView.ScrollPerPixel)
+        self.news.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.news.customContextMenuRequested.connect(self._show_news_context_menu)
         self.model = NewsListModel(self.news)
         self.delegate = NewsDelegate(self.news)
         self.news.setModel(self.model)
@@ -440,6 +449,8 @@ class MainWindow(QMainWindow):
                       and not self.other_button.isChecked())
                   or bool(self.region.currentData()))
         self.filter_button.setText("필터 적용 중" if active else "필터")
+        self.news_count.setText(f"{len(visible)}건")
+        self.news_count.setToolTip(f"전체 {len(self.state.items)}건")
         self.news.setAccessibleDescription(f"검색 결과 {len(visible)}개")
         self._update_saved_icon()
         if not current:
@@ -460,6 +471,36 @@ class MainWindow(QMainWindow):
         self.sort.setCurrentIndex(0)
         self.sort.blockSignals(False)
         self.apply_filters()
+
+    def _show_news_context_menu(self, position):
+        index = self.news.indexAt(position)
+        if not index.isValid():
+            return
+        item = index.data(ITEM_ROLE)
+        if item is None:
+            return
+
+        menu = QMenu(self.news)
+        detail_action = menu.addAction("기사 보기")
+        locate_action = menu.addAction("지도에서 보기")
+        locate_action.setEnabled(item.has_coordinates)
+        saved = bookmark_key(item) in self.state.saved_keys
+        bookmark_action = menu.addAction("저장 취소" if saved else "기사 저장")
+        copy_action = menu.addAction("제목 복사")
+        action = menu.exec(self.news.viewport().mapToGlobal(position))
+        menu.deleteLater()
+        if action is None:
+            return
+
+        self.select_news(item.id)
+        if action is detail_action:
+            self.show_detail()
+        elif action is locate_action:
+            self.locate_news(item.id)
+        elif action is bookmark_action:
+            self.toggle_bookmark()
+        elif action is copy_action:
+            QApplication.clipboard().setText(item.title)
 
     def _list_selected(self, current, previous):
         item = current.data(ITEM_ROLE)

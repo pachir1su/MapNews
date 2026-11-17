@@ -51,6 +51,7 @@ def apply_theme(app, dark: bool):
     QLabel#brand { font-size: 23px; font-weight: 700; }
     QLabel#heading { font-size: 20px; font-weight: 700; }
     QLabel#muted { color: %(muted)s; }
+    QLabel#newsCount { color: %(muted)s; font-size: 12px; }
     QLabel#articleTitle { font-size: 24px; font-weight: 700; }
     QLabel#summary { font-size: 15px; }
     QLabel#badge { color: %(accent)s; font-weight: 600; }
