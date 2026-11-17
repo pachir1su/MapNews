@@ -91,10 +91,10 @@
         const marker = markers.get(selected);
         if (marker && value.focus) {
             map.stop();
+            // zoomToShowLayer schedules asynchronous pans which can override a newer
+            // article selection. setView is immediate; moveend redraws the highlight.
             map.setView(marker.getLatLng(), Math.max(map.getZoom(), 11), {animate: false});
-            cluster.zoomToShowLayer(marker, function () {
-                if (markers.get(selected) === marker) refreshSelection();
-            });
+            refreshSelection();
         }
     };
     // Leaflet replaces clustered marker elements during pans and zooms.
