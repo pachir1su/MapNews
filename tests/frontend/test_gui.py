@@ -244,4 +244,5 @@ def test_malformed_provider_returns_failure(qtbot):
     with qtbot.waitSignal(worker.failed, timeout=3000) as signal:
         worker.start()
     worker.wait(3000)
-    assert 'TypeError' in signal.args[0]
+    assert '뉴스를 불러오지 못했어요' in signal.args[0]
+    assert 'TypeError' not in signal.args[0]
