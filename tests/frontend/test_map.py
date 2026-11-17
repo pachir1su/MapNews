@@ -76,7 +76,8 @@ def test_real_webchannel_leaflet_and_marker_click(web, qtbot):
     assert ev('window.mapReady') is True
     web.set_selected('1', focus=True)
     qtbot.waitUntil(lambda: ev("document.querySelectorAll('.news-selected').length") == 1, timeout=10000)
-    assert ev("document.querySelector('.leaflet-popup-content strong').textContent") == items[0].title
+    qtbot.waitUntil(lambda: ev("document.querySelector('.leaflet-popup-content strong')?.textContent")
+                    == items[0].title, timeout=10000)
     selected = []
     web.selected.connect(selected.append)
     ev("document.querySelector('.news-selected').click(); true;")
