@@ -33,3 +33,12 @@ def test_news_context_menu_copies_the_actual_title(window, monkeypatch):
     window._show_news_context_menu(window.news.visualRect(index).center())
     assert QApplication.clipboard().text() == item.title
     assert window.state.selected_id == item.id
+
+
+def test_single_location_does_not_overzoom(window):
+    from frontend.models import NewsBatch
+
+    item = next(item for item in window.state.items if item.has_coordinates)
+    window._loaded(NewsBatch((item,)))
+    assert window.map.offline.markers
+    assert window.map.offline.transform().m11() <= 2.8 + 1e-6

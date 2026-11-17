@@ -220,6 +220,12 @@ class OfflineMap(QGraphicsView):
         top, bottom = min(p.y() for p in points), max(p.y() for p in points)
         self.fitInView(QRectF(left - 12, top - 12, right - left + 24, bottom - top + 24),
                        Qt.KeepAspectRatio)
+        # One article (or several at one place) should not fill the entire map
+        # with a few administrative boundary segments.
+        if self.transform().m11() > 2.8:
+            self.resetTransform()
+            self.scale(2.8, 2.8)
+            self.centerOn(QPointF((left + right) / 2, (top + bottom) / 2))
         self._draw_markers()
 
     def open_cluster(self, items, screen_position):
