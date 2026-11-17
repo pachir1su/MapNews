@@ -13,6 +13,7 @@
     };
     let bridge = null;
     let selected = null;
+    let pendingFocus = null;
     let tileErrors = 0;
     let tileLoaded = false;
     let tileTimedOut = false;
@@ -89,12 +90,20 @@
         selected = value.id;
         refreshSelection();
         const marker = markers.get(selected);
+        if (pendingFocus !== null) {
+            clearTimeout(pendingFocus);
+            pendingFocus = null;
+        }
         if (marker && value.focus) {
-            map.stop();
-            // zoomToShowLayer schedules asynchronous pans which can override a newer
-            // article selection. setView is immediate; moveend redraws the highlight.
-            map.setView(marker.getLatLng(), Math.max(map.getZoom(), 11), {animate: false});
-            refreshSelection();
+            // Coalesce consecutive Qt bridge commands so only the newest article
+            // moves the map; older movements otherwise fight cluster redraws.
+            pendingFocus = setTimeout(function () {
+                pendingFocus = null;
+                if (markers.get(selected) !== marker) return;
+                map.stop();
+                map.setView(marker.getLatLng(), Math.max(map.getZoom(), 11), {animate: false});
+                refreshSelection();
+            }, 40);
         }
     };
     // Leaflet replaces clustered marker elements during pans and zooms.
