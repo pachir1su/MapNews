@@ -16,22 +16,47 @@
 
 이 문서는 사용 흐름 설명이다. 이번 변경의 실제 실행/시연은 아직 검증하지 않았다.
 
-
-## 현재 프론트엔드 실제 화면 캡처
+## 실제 프론트엔드 화면
 
 ```bash
 python -m frontend.tools.capture_review --output test-artifacts/screenshots
 ```
 
-설치된 PySide6로 실제 애플리케이션 위젯을 실행하고, 네트워크 없이 로컬 지도와
-기본 제공 기사 20건을 이용해 다음 화면을 저장한다.
+Qt 오프스크린 실행으로 제공된 가상 기사 20건을 사용하며 생성한 화면은
+실행 가능한 위젯에서 직접 캡처한 자료다. 이미지 생성 결과가 아니다.
+팀 크롤러 및 데이터베이스 연동 결과와 구분한다.
 
-- `01-map-overview.png`: 전국 지도와 기사 목록
-- `02-region-filter.png`: 지역 필터 결과
-- `03-news-detail.png`: 기사 상세 보기
-- `04-compact-window.png`: 창 너비를 줄인 화면
+| 캡처 파일 | 화면 |
+|---|---|
+| 01-map-overview.png | 기본 지도와 뉴스 목록 |
+| 02-region-filter.png | 지역 필터 적용 |
+| 03-news-detail.png | 기사 상세 |
+| 04-compact-window.png | 작은 창 |
+| 05-keyword-search.png | 키워드 검색 |
+| 06-category-filter.png | 카테고리 필터 |
+| 07-empty-search.png | 검색 결과 없음 |
+| 08-saved-news-detail.png | 저장한 기사 상세 |
+| 09-saved-news-list.png | 저장한 기사 목록 |
+| 10-district-map.png | 행정구역 확대 |
+| 11-dark-theme.png | 시스템 색상 변경 신호를 적용한 다크 모드 |
+| 12-wide-desktop.png | 1920×1080 큰 창 |
+| 13-load-details.png | 데이터 불러오기 정보 |
 
-GitHub Actions의 Linux 검사에서도 같은 캡처 명령을 실행한다. 파일은
-`frontend-review-Linux` 아티팩트의 `screenshots/` 아래에 저장된다.
-이미지는 생성형 시안이 아닌 Qt 화면 캡처이며, 백엔드 통합 결과가 아니라
-프론트엔드의 기본 시연 데이터 실행 결과다.
+GitHub Actions Linux 검사에서 `mapnews-qt-screens` 아티팩트로 제공한다.
+검사 전체가 실패하더라도 캡처 업로드가 완료되면 확인할 수 있다.
+
+## 팀원 데이터 연동
+
+지도 시각화 코드가 합쳐진 작업 디렉터리에서는 다음과 같이
+`data_ai/results.json`에 좌표를 붙인 프론트엔드 입력 파일을 만들 수 있다.
+
+```bash
+python -m frontend.tools.export_team_news --input data_ai/results.json --output test-artifacts/team-news.json
+python -m frontend --json test-artifacts/team-news.json --mock-json
+```
+
+위 명령은 기존 시연 데이터에 대한 예시다. 실제 수집한 기사로 검증할
+때는 `--mock-json`을 사용하지 않는다. 좌표가 없는 기사는 목록에
+남기고 지도에만 표시하지 않는다. 원본 데이터 파일이나 다른 팀원
+코드에는 변경을 가하지 않는다. 좌표 변환 모듈에는 `geopy`와
+`folium` 의존성이 필요하다.
