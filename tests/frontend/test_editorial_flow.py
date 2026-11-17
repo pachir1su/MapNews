@@ -1,6 +1,5 @@
 """Focused interaction checks for the map-first desktop explorer."""
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QMenu
 
 
