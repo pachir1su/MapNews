@@ -79,27 +79,28 @@
         });
         window.selectNews({id: selected, focus: false});
     };
-    window.selectNews = function (value) {
-        selected = value.id;
+    function refreshSelection() {
         markers.forEach(function (marker, id) {
             const el = marker.getElement();
             if (el) el.classList.toggle("news-selected", id === selected);
         });
+    }
+    window.selectNews = function (value) {
+        selected = value.id;
+        refreshSelection();
         const marker = markers.get(selected);
         if (marker && value.focus) {
             map.stop();
             map.setView(marker.getLatLng(), Math.max(map.getZoom(), 11), {animate: false});
             cluster.zoomToShowLayer(marker, function () {
-                if (markers.get(selected) !== marker) return;
-
-                const el = marker.getElement();
-                if (el) el.classList.add("news-selected");
+                if (markers.get(selected) === marker) refreshSelection();
             });
         }
     };
-    cluster.on("animationend spiderfied", function () {
-        window.selectNews({id: selected, focus: false});
-    });
+    // Leaflet replaces clustered marker elements during pans and zooms.
+    // Reapply the current selection after those replacement elements appear.
+    map.on("moveend zoomend", refreshSelection);
+    cluster.on("animationend spiderfied unspiderfied", refreshSelection);
     window.setTheme = function (dark) {
         document.body.classList.toggle("map-dark", dark);
         provinces.setStyle({color: dark ? '#afc4df' : '#64748b'});
