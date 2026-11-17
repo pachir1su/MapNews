@@ -41,6 +41,13 @@ jobs:
       - name: Capture real frontend screens
         if: runner.os == 'Linux'
         run: python -m frontend.tools.capture_review --output test-artifacts/screenshots
+      - name: Upload screenshot captures
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mapnews-qt-screens
+          path: test-artifacts/screenshots/
+          if-no-files-found: error
       - name: Test data, Qt GUI and real WebEngine bridge
         run: python -m pytest -q --junitxml=test-artifacts/junit.xml
       - name: HiDPI GUI tests
