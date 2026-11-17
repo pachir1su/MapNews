@@ -449,7 +449,7 @@ class MainWindow(QMainWindow):
         self.update_empty_state()
         restricted_categories = (
             not all(button.isChecked() for button in self.category_buttons.values())
-            or (self.other_button.isVisible() and not self.other_button.isChecked())
+            or (not self.other_button.isHidden() and not self.other_button.isChecked())
         )
         selected_region = self.region.currentData() or ""
         filter_count = int(restricted_categories) + int(bool(selected_region))

@@ -100,3 +100,19 @@ def test_filter_panel_keeps_visibility_separate_from_active_filters(window):
     assert window.filters_panel.isHidden()
     window.filter_button.setChecked(True)
     assert window.filters_panel.isVisible()
+
+
+def test_other_category_filter_indicator_when_panel_closed(window):
+    from dataclasses import replace
+    from frontend.models import NewsBatch
+
+    items = list(window.state.items)
+    items[0] = replace(items[0], category="지역기타")
+    window._loaded(NewsBatch(tuple(items)))
+    assert not window.other_button.isHidden()
+
+    window.other_button.setChecked(False)
+    window.filter_button.setChecked(False)
+    window.apply_filters()
+    assert window.filter_button.text() == "필터 1"
+    assert window.filter_button.property("filterActive") is True
