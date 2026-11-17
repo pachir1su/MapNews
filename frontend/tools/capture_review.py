@@ -63,6 +63,65 @@ def main() -> int:
         window.resize(1000, 700)
         capture("04-compact-window")
 
+        window.resize(1366, 768)
+        window.search.setText("천안")
+        window.apply_filters()
+        capture("05-keyword-search")
+
+        window.reset_filters()
+        window.filter_button.setChecked(True)
+        for name, button in window.category_buttons.items():
+            button.setChecked(name == "행사")
+        window.apply_filters()
+        capture("06-category-filter")
+
+        window.reset_filters()
+        window.filter_button.setChecked(False)
+        window.search.setText("검색결과없음")
+        window.apply_filters()
+        capture("07-empty-search")
+
+        window.reset_filters()
+        window.select_news(window.model.items[0].id)
+        window.toggle_bookmark()
+        window.show_detail()
+        capture("08-saved-news-detail")
+
+        window.dismiss_detail()
+        window.saved_button.setChecked(True)
+        window.apply_filters()
+        capture("09-saved-news-list")
+
+        window.saved_button.setChecked(False)
+        window.reset_filters()
+        window.map.offline.home()
+        for _ in range(6):
+            window.map.offline.zoom(1.25)
+        capture("10-district-map")
+
+        QApplication.styleHints().colorSchemeChanged.emit(Qt.ColorScheme.Dark)
+        window.map.offline.home()
+        capture("11-dark-theme")
+
+        QApplication.styleHints().colorSchemeChanged.emit(Qt.ColorScheme.Light)
+        window.resize(1920, 1080)
+        window.map.offline.home()
+        capture("12-wide-desktop")
+
+        window.show_load_details()
+        app.processEvents()
+        from PySide6.QtWidgets import QDialog
+        dialogs = window.findChildren(QDialog)
+        if not dialogs:
+            raise RuntimeError("Load details dialog did not open")
+        dialog = dialogs[-1]
+        QTest.qWait(160)
+        detail_path = output / "13-load-details.png"
+        if not dialog.grab().save(str(detail_path)):
+            raise RuntimeError(f"Unable to save screenshot: {detail_path}")
+        dialog.close()
+        print(f"Captured {detail_path}")
+
         window.close()
         app.processEvents()
 
