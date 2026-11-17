@@ -38,6 +38,9 @@ jobs:
       - run: python -m pip install -r requirements-frontend-dev.txt
       - run: python -m ruff check frontend tests/frontend
       - run: python -m compileall -q frontend
+      - name: Capture real frontend screens
+        if: runner.os == 'Linux'
+        run: python -m frontend.tools.capture_review --output test-artifacts/screenshots
       - name: Test data, Qt GUI and real WebEngine bridge
         run: python -m pytest -q --junitxml=test-artifacts/junit.xml
       - name: HiDPI GUI tests
