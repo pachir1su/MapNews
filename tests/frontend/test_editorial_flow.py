@@ -68,3 +68,35 @@ def test_category_filter_buttons_wrap_into_two_rows(window):
     assert window.category_layout.columnCount() == 3
     for index, name in enumerate(CATEGORIES):
         assert window.category_layout.itemAtPosition(index // 3, index % 3).widget() is window.category_buttons[name]
+
+
+def test_filter_button_summarizes_selected_conditions(window):
+    assert window.filter_button.text() == "필터"
+    first_category = next(iter(window.category_buttons.values()))
+    first_category.setChecked(False)
+    window.apply_filters()
+    assert window.filter_button.text() == "필터 1"
+    assert window.filter_button.property("filterActive") is True
+
+    assert window.region.count() > 1
+    window.region.setCurrentIndex(1)
+    window.apply_filters()
+    assert window.filter_button.text() == "필터 2"
+    assert "2개 적용" in window.filter_button.accessibleName()
+
+    window.reset_filters()
+    assert window.filter_button.text() == "필터"
+    assert window.filter_button.property("filterActive") is False
+
+
+def test_filter_panel_keeps_visibility_separate_from_active_filters(window):
+    window.filter_button.setChecked(True)
+    assert window.filters_panel.isVisible()
+    first_category = next(iter(window.category_buttons.values()))
+    first_category.setChecked(False)
+    window.apply_filters()
+    window.filter_button.setChecked(False)
+    assert window.filter_button.text() == "필터 1"
+    assert window.filters_panel.isHidden()
+    window.filter_button.setChecked(True)
+    assert window.filters_panel.isVisible()

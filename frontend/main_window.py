@@ -139,6 +139,7 @@ class MainWindow(QMainWindow):
         self.detail.locate.connect(self.locate_news)
         self.detail.notice.connect(self.show_notice)
         for key, handler in (("Ctrl+K", self.focus_search), ("Ctrl+F", self.focus_search),
+                             ("Ctrl+Shift+F", self.filter_button.toggle),
                              ("F5", self.reload), ("Ctrl+Return", self.show_detail),
                              ("Escape", self.dismiss_detail)):
             shortcut = QShortcut(QKeySequence(key), self)
@@ -204,6 +205,7 @@ class MainWindow(QMainWindow):
         self.saved_button.toggled.connect(self.apply_filters)
         toolbar.addWidget(self.saved_button)
         self.filter_button = QPushButton("필터")
+        self.filter_button.setObjectName("filter")
         self.filter_button.setCheckable(True)
         self.filter_button.setAccessibleName("검색 필터 펼치기")
         toolbar.addWidget(self.filter_button)
@@ -445,11 +447,26 @@ class MainWindow(QMainWindow):
         if changed and located_ids:
             self.map.active.fit_results()
         self.update_empty_state()
-        active = (not all(button.isChecked() for button in self.category_buttons.values())
-                  or (any(item.category not in CATEGORIES for item in self.state.items)
-                      and not self.other_button.isChecked())
-                  or bool(self.region.currentData()))
-        self.filter_button.setText("필터 적용 중" if active else "필터")
+        restricted_categories = (
+            not all(button.isChecked() for button in self.category_buttons.values())
+            or (self.other_button.isVisible() and not self.other_button.isChecked())
+        )
+        selected_region = self.region.currentData() or ""
+        filter_count = int(restricted_categories) + int(bool(selected_region))
+        self.filter_button.setText(f"필터 {filter_count}" if filter_count else "필터")
+        self.filter_button.setToolTip(
+            f"{filter_count}개 조건 적용 중 · Ctrl+Shift+F" if filter_count
+            else "분류와 지역 선택 · Ctrl+Shift+F"
+        )
+        self.filter_button.setAccessibleName(
+            f"필터 {filter_count}개 적용, 열기 또는 닫기" if filter_count
+            else "분류 및 지역 필터 열기 또는 닫기"
+        )
+        is_active = bool(filter_count)
+        if self.filter_button.property("filterActive") != is_active:
+            self.filter_button.setProperty("filterActive", is_active)
+            self.filter_button.style().unpolish(self.filter_button)
+            self.filter_button.style().polish(self.filter_button)
         self.news_count.setText(f"{len(visible)}건")
         self.news_count.setToolTip(f"전체 {len(self.state.items)}건")
         self.news.setAccessibleDescription(f"검색 결과 {len(visible)}개")

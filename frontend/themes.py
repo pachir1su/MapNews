@@ -66,6 +66,7 @@ def apply_theme(app, dark: bool):
     QPushButton:hover, QToolButton:hover { background: %(selected)s; }
     QPushButton:focus, QLineEdit:focus, QComboBox:focus { border: 2px solid %(accent)s; }
     QPushButton:checked { background: %(selected)s; color: %(accent)s; font-weight: 600; }
+    QPushButton#filter[filterActive="true"] { background: %(selected)s; color: %(accent)s; font-weight: 600; }
     QPushButton#quiet { background: transparent; color: %(muted)s; }
     QToolButton { padding: 0; min-height: 38px; }
     QToolButton:focus { border: 2px solid %(accent)s; }
