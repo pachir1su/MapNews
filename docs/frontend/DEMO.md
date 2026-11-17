@@ -15,3 +15,23 @@
 가상 기사에는 원문 버튼이 없으며 실제 데이터의 유효한 URL만 기본 브라우저에서 연다.
 
 이 문서는 사용 흐름 설명이다. 이번 변경의 실제 실행/시연은 아직 검증하지 않았다.
+
+
+## 현재 프론트엔드 실제 화면 캡처
+
+```bash
+python -m frontend.tools.capture_review --output test-artifacts/screenshots
+```
+
+설치된 PySide6로 실제 애플리케이션 위젯을 실행하고, 네트워크 없이 로컬 지도와
+기본 제공 기사 20건을 이용해 다음 화면을 저장한다.
+
+- `01-map-overview.png`: 전국 지도와 기사 목록
+- `02-region-filter.png`: 지역 필터 결과
+- `03-news-detail.png`: 기사 상세 보기
+- `04-compact-window.png`: 창 너비를 줄인 화면
+
+GitHub Actions의 Linux 검사에서도 같은 캡처 명령을 실행한다. 파일은
+`frontend-review-Linux` 아티팩트의 `screenshots/` 아래에 저장된다.
+이미지는 생성형 시안이 아닌 Qt 화면 캡처이며, 백엔드 통합 결과가 아니라
+프론트엔드의 기본 시연 데이터 실행 결과다.
