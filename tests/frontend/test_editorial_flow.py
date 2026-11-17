@@ -48,3 +48,12 @@ def test_article_row_uses_compact_readable_height(window):
     index = window.model.index(0)
     assert index.isValid()
     assert window.delegate.sizeHint(None, index).height() == 100
+
+
+def test_escape_clears_search_when_search_is_focused(window):
+    window.search.setText("천안")
+    window.search.setFocus()
+    assert window.search.hasFocus()
+    window.dismiss_detail()
+    assert window.search.text() == ""
+    assert window.search.hasFocus()

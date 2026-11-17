@@ -583,6 +583,8 @@ class MainWindow(QMainWindow):
         if self.panel_stack.currentWidget() is self.detail:
             self.panel_stack.setCurrentWidget(self.sidebar)
             self.news.setFocus()
+        elif self.search.hasFocus() and self.search.text():
+            self.search.clear()
         elif self.filters_panel.isVisible():
             self.filter_button.setChecked(False)
         else:
