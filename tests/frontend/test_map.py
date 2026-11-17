@@ -76,7 +76,7 @@ def test_real_webchannel_leaflet_and_marker_click(web, qtbot):
     assert ev('window.mapReady') is True
     web.set_selected('1', focus=True)
     qtbot.waitUntil(lambda: ev("document.querySelectorAll('.news-selected').length") == 1, timeout=10000)
-    qtbot.waitUntil(lambda: ev("document.querySelector('.leaflet-popup-content strong')?.textContent")
+    qtbot.waitUntil(lambda: ev("document.querySelector('.news-selected')?.title")
                     == items[0].title, timeout=10000)
     selected = []
     web.selected.connect(selected.append)
@@ -87,7 +87,7 @@ def test_real_webchannel_leaflet_and_marker_click(web, qtbot):
     web.set_items(items[:2])
     web.set_selected('2', focus=True)
     qtbot.waitUntil(lambda: ev("document.querySelectorAll('.news-selected').length") == 1, timeout=10000)
-    qtbot.waitUntil(lambda: ev("document.querySelector('.leaflet-popup-content strong')?.textContent") == items[1].title)
+    qtbot.waitUntil(lambda: ev("document.querySelector('.news-selected')?.title") == items[1].title)
 
 
 @pytest.mark.webengine
@@ -96,12 +96,13 @@ def test_html_in_news_is_literal(web, qtbot):
     item = replace(MockNewsProvider().load(Event()).items[0], title="<img src=x onerror='window.hacked=true'>")
     web.set_items([item])
     web.set_selected(item.id, focus=True)
-    qtbot.waitUntil(lambda: evaluate(qtbot, web, "document.querySelectorAll('.leaflet-popup-content strong').length") == 1)
+    qtbot.waitUntil(lambda: evaluate(qtbot, web, "document.querySelector('.news-selected')?.title")
+                    == item.title, timeout=10000)
     result = json.loads(evaluate(qtbot, web,
-        "JSON.stringify({hacked:!!window.hacked, images:document.querySelectorAll('.leaflet-popup-content img').length,"
-        "text:document.querySelector('.leaflet-popup-content strong').textContent})"))
+        "JSON.stringify({hacked:!!window.hacked, injected:document.querySelectorAll('.leaflet-marker-icon img[src=x]').length,"
+        "text:document.querySelector('.news-selected')?.title})"))
     assert result['hacked'] is False
-    assert result['images'] == 0
+    assert result['injected'] == 0
     assert result['text'] == item.title
 
 
@@ -118,7 +119,7 @@ def test_fit_results_and_rapid_selection(web, qtbot):
     web.set_selected(items[5].id, focus=True)
     web.set_selected(items[13].id, focus=True)
     qtbot.waitUntil(lambda: evaluate(qtbot, web,
-        "document.querySelector('.leaflet-popup-content strong')?.textContent") == items[13].title,
+        "document.querySelector('.news-selected')?.title") == items[13].title,
         timeout=10000)
 
 
