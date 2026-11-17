@@ -118,9 +118,19 @@ def test_fit_results_and_rapid_selection(web, qtbot):
     qtbot.waitUntil(lambda: evaluate(qtbot, web, script) == 2, timeout=10000)
     web.set_selected(items[5].id, focus=True)
     web.set_selected(items[13].id, focus=True)
-    qtbot.waitUntil(lambda: evaluate(qtbot, web,
-        "document.querySelector('.news-selected')?.title") == items[13].title,
-        timeout=10000)
+    try:
+        qtbot.waitUntil(lambda: evaluate(qtbot, web,
+            "document.querySelector('.news-selected')?.title") == items[13].title,
+            timeout=10000)
+    except Exception as exc:
+        snapshot = evaluate(qtbot, web,
+            "JSON.stringify(Array.from(document.querySelectorAll('.leaflet-marker-icon')).map("
+            "el => ({title:el.title, selected:el.classList.contains('news-selected')})))")
+        evaluate(qtbot, web, "window.selectNews({id:'14',focus:false}); true;")
+        repainted = evaluate(qtbot, web,
+            "JSON.stringify(Array.from(document.querySelectorAll('.leaflet-marker-icon')).map("
+            "el => ({title:el.title, selected:el.classList.contains('news-selected')})))")
+        raise AssertionError(f"Rapid marker selection mismatch: before={snapshot}, repainted={repainted}") from exc
 
 
 @pytest.mark.webengine
