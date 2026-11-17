@@ -42,3 +42,9 @@ def test_single_location_does_not_overzoom(window):
     window._loaded(NewsBatch((item,)))
     assert window.map.offline.markers
     assert window.map.offline.transform().m11() <= 2.8 + 1e-6
+
+
+def test_article_row_uses_compact_readable_height(window):
+    index = window.model.index(0)
+    assert index.isValid()
+    assert window.delegate.sizeHint(None, index).height() == 100
