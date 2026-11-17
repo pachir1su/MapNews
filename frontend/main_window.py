@@ -482,25 +482,34 @@ class MainWindow(QMainWindow):
             return
 
         menu = QMenu(self.news)
-        detail_action = menu.addAction("기사 보기")
-        locate_action = menu.addAction("지도에서 보기")
-        locate_action.setEnabled(item.has_coordinates)
-        saved = bookmark_key(item) in self.state.saved_keys
-        bookmark_action = menu.addAction("저장 취소" if saved else "기사 저장")
-        copy_action = menu.addAction("제목 복사")
-        action = menu.exec(self.news.viewport().mapToGlobal(position))
-        menu.deleteLater()
-        if action is None:
-            return
+        menu.setAttribute(Qt.WA_DeleteOnClose)
+        for title, command in (
+            ("기사 보기", "detail"),
+            ("지도에서 보기", "locate"),
+            ("저장 취소" if bookmark_key(item) in self.state.saved_keys else "기사 저장", "save"),
+            ("제목 복사", "copy"),
+        ):
+            action = menu.addAction(title)
+            if command == "locate":
+                action.setEnabled(item.has_coordinates)
+            action.triggered.connect(
+                lambda checked=False, article_id=item.id, kind=command:
+                    self._run_news_context_action(article_id, kind)
+            )
+        menu.popup(self.news.viewport().mapToGlobal(position))
 
-        self.select_news(item.id)
-        if action is detail_action:
+    def _run_news_context_action(self, identifier, command):
+        item = next((article for article in self.model.items if article.id == identifier), None)
+        if item is None:
+            return
+        self.select_news(identifier)
+        if command == "detail":
             self.show_detail()
-        elif action is locate_action:
-            self.locate_news(item.id)
-        elif action is bookmark_action:
+        elif command == "locate" and item.has_coordinates:
+            self.locate_news(identifier)
+        elif command == "save":
             self.toggle_bookmark()
-        elif action is copy_action:
+        elif command == "copy":
             QApplication.clipboard().setText(item.title)
 
     def _list_selected(self, current, previous):

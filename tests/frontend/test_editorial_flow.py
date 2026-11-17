@@ -1,6 +1,6 @@
 """Focused interaction checks for the map-first desktop explorer."""
 
-from PySide6.QtWidgets import QApplication, QMenu
+from PySide6.QtWidgets import QApplication
 
 
 def test_search_shortcut_replaces_existing_keyword(window):
@@ -22,17 +22,17 @@ def test_result_count_stays_in_sync_with_filters(window):
     assert window.model.rowCount() == 20
 
 
-def test_news_context_menu_copies_the_actual_title(window, monkeypatch):
+def test_news_context_menu_copies_the_actual_title(window):
     item = window.model.items[0]
-    index = window.model.index(0)
-
-    def choose_copy(menu, position):
-        return next(action for action in menu.actions() if action.text() == "제목 복사")
-
-    monkeypatch.setattr(QMenu, "exec", choose_copy)
-    window._show_news_context_menu(window.news.visualRect(index).center())
+    window._run_news_context_action(item.id, "copy")
     assert QApplication.clipboard().text() == item.title
     assert window.state.selected_id == item.id
+
+
+def test_news_context_menu_ignores_missing_article(window):
+    previous = window.state.selected_id
+    window._run_news_context_action("not-an-article", "detail")
+    assert window.state.selected_id == previous
 
 
 def test_single_location_does_not_overzoom(window):
