@@ -25,7 +25,7 @@ def test_invalid_map_data_falls_back(tmp_path, payload):
 def test_missing_map_data_keeps_main_window_working(qtbot, monkeypatch, tmp_path):
     import frontend.map_data as map_data
     monkeypatch.setattr(map_data, 'MAP_PATH', tmp_path / 'missing.geojson')
-    window = MainWindow(settings=QSettings(str(tmp_path / 'test.ini'), QSettings.IniFormat))
+    window = MainWindow(settings=QSettings(str(tmp_path / 'test.ini'), QSettings.IniFormat), online=False)
     qtbot.addWidget(window)
     window.show()
     qtbot.waitUntil(lambda: window.batch is not None)
@@ -138,7 +138,7 @@ def test_first_load_cancel_has_recovery_state(qtbot, tmp_path):
             cancel.wait(2)
             return NewsBatch(())
     window = MainWindow(Slow(), settings=QSettings(str(tmp_path / 'cancel.ini'), QSettings.IniFormat),
-                        auto_load=False)
+                        auto_load=False, online=False)
     qtbot.addWidget(window)
     window.show()
     window.reload()

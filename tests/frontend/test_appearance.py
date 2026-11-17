@@ -28,7 +28,7 @@ def test_only_system_controls_appearance(window, qtbot):
 def test_legacy_preference_is_discarded(qtbot, tmp_path):
     settings = QSettings(str(tmp_path / 'legacy.ini'), QSettings.IniFormat)
     settings.setValue('dark', not system_is_dark(QApplication.styleHints().colorScheme()))
-    window = MainWindow(settings=settings, auto_load=False)
+    window = MainWindow(settings=settings, auto_load=False, online=False)
     qtbot.addWidget(window)
     assert window.dark == system_is_dark(QApplication.styleHints().colorScheme())
     assert not settings.contains('dark')
