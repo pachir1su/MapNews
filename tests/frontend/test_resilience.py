@@ -155,21 +155,29 @@ def test_first_load_cancel_has_recovery_state(qtbot, tmp_path):
 
 
 @pytest.mark.webengine
-def test_repeated_online_offline_disposes_pages_and_profiles(window, qtbot, monkeypatch):
+def test_repeated_online_offline_disposes_pages_and_reuses_profile(window, qtbot, monkeypatch):
     from shiboken6 import isValid
     import frontend.web_map as web_module
     real = web_module.WebMap
     monkeypatch.setattr(web_module, 'WebMap', lambda parent: real(parent, online_tiles=False))
     window.select_news('1')
+    shared_profile = None
     for _ in range(3):
         window.map.set_online(True)
         view = window.map.web
         qtbot.waitUntil(lambda: view.ready, timeout=15000)
         assert view.current_id == '1'
         profile = view.profile
+        page = view.map_page
+        if shared_profile is None:
+            shared_profile = profile
+        else:
+            assert profile is shared_profile
         window.map.set_online(False)
         qtbot.waitUntil(lambda: not isValid(view))
-        qtbot.waitUntil(lambda: not isValid(profile))
+        qtbot.waitUntil(lambda: not isValid(page))
+        # map_profile() deliberately keeps one app-owned HTTP tile cache between maps.
+        assert isValid(profile)
         assert window.state.selected_id == '1'
 
 
