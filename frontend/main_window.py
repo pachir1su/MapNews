@@ -371,7 +371,7 @@ class MainWindow(QMainWindow):
         self.load_error = message
         self.notice_timer.stop()
         self.banner.setToolTip("")
-        self.banner.setText(message + (" 기존 데이터는 유지합니다." if self.batch else ""))
+        self.banner.setText("뉴스를 불러오지 못했어요." + (" 기존 데이터는 유지합니다." if self.batch else ""))
         self.banner.show()
         if not self.state.items:
             self.empty.setText("뉴스를 불러오지 못했어요")

@@ -77,7 +77,7 @@ def test_province_edges_match_district_geometry():
 
 def test_secondary_actions_and_information(window, qtbot):
     assert window.import_button in window.more_menu.actions()
-    assert window.demo_button in window.more_menu.actions()
+    assert window.default_data_action in window.more_menu.actions()
     window.more_menu.actions()[-1].trigger()
     from frontend.information import InformationDialog
     dialog = window.findChild(InformationDialog)

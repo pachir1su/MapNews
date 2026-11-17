@@ -8,7 +8,7 @@ QCoreApplication.setAttribute(Qt.AA_ShareOpenGLContexts)
 @pytest.fixture
 def window(qtbot, tmp_path):
     settings = QSettings(str(tmp_path / 'test.ini'), QSettings.IniFormat)
-    window = MainWindow(settings=settings)
+    window = MainWindow(settings=settings, online=False)
     qtbot.addWidget(window)
     window.show()
     qtbot.waitUntil(lambda: window.batch is not None, timeout=10000)

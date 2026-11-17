@@ -147,7 +147,7 @@ def test_first_load_cancel_has_recovery_state(qtbot, tmp_path):
     qtbot.waitUntil(lambda: window.refresh_button.isEnabled())
     assert window.batch is None and window.empty.isVisible()
     assert '취소' in window.empty.text()
-    window.use_demo()
+    window.use_default_data()
     qtbot.waitUntil(lambda: window.batch is not None)
     assert window.model.rowCount() == 20
     qtbot.waitUntil(lambda: not window.worker.isRunning())
@@ -162,12 +162,12 @@ def test_repeated_online_offline_disposes_pages_and_profiles(window, qtbot, monk
     monkeypatch.setattr(web_module, 'WebMap', lambda parent: real(parent, online_tiles=False))
     window.select_news('1')
     for _ in range(3):
-        window.map.mode.setCurrentIndex(1)
+        window.map.set_online(True)
         view = window.map.web
         qtbot.waitUntil(lambda: view.ready, timeout=15000)
         assert view.current_id == '1'
         profile = view.profile
-        window.map.mode.setCurrentIndex(0)
+        window.map.set_online(False)
         qtbot.waitUntil(lambda: not isValid(view))
         qtbot.waitUntil(lambda: not isValid(profile))
         assert window.state.selected_id == '1'
@@ -178,6 +178,6 @@ def test_close_while_map_builder_runs(window, qtbot, monkeypatch):
     import frontend.web_map as web_module
     real = web_module.WebMap
     monkeypatch.setattr(web_module, 'WebMap', lambda parent: real(parent, online_tiles=False))
-    window.map.mode.setCurrentIndex(1)
+    window.map.set_online(True)
     window.close()
     qtbot.waitUntil(lambda: not window.isVisible(), timeout=15000)

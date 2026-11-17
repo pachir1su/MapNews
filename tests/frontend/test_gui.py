@@ -12,16 +12,16 @@ from frontend.offline_map import cluster_points, project
 def test_main_widgets_and_demo(window):
     assert window.model.rowCount() == 20
     assert window.map.offline.items == window.model.items
-    assert window.source_label.text() == '데모'
+    assert window.batch.source.startswith('MOCK')
     assert window.map.web is None
 
 
 def test_list_selection_details_and_map(window):
     window.news.setCurrentIndex(window.model.index(3))
     assert window.state.selected_id == '4'
-    assert window.detail.item.id == window.dialog_detail.item.id == '4'
+    assert window.detail.item.id == '4'
     assert window.map.offline.selected_id == '4'
-    assert not window.detail.open_button.isEnabled()
+    assert window.detail.open_button.isHidden()
 
 
 def test_map_selection_updates_list(window):
@@ -74,10 +74,10 @@ def test_dark_light_and_responsive_detail(window, qtbot):
     qtbot.waitUntil(lambda: not window.detail.isVisible())
     window.select_news('1')
     window.show_detail()
-    assert window.detail_dialog.isVisible()
+    assert window.panel_stack.currentWidget() is window.detail
     window.dismiss_detail()
     window.resize(1366, 768)
-    qtbot.waitUntil(window.detail.isVisible)
+    assert window.panel_stack.currentWidget() is window.sidebar
     assert window.map.width() >= 410
 
 
@@ -89,7 +89,7 @@ def test_failure_retains_existing_data(window, qtbot):
     window.provider = Broken()
     window.reload()
     qtbot.waitUntil(lambda: not window.worker.isRunning())
-    qtbot.waitUntil(lambda: '불러오지 못했습니다' in window.banner.text())
+    qtbot.waitUntil(lambda: '불러오지 못했어요' in window.banner.text())
     assert window.model.rowCount() == 20
     assert 'do-not-display-secret' not in window.banner.text()
     assert window.refresh_button.isEnabled()
@@ -103,10 +103,10 @@ def test_empty_and_partial_batch(window):
     window._loaded(parse_news([{'id': 'a', 'title': '<img src=x onerror=alert(1)>'}]))
     window.select_news('a')
     assert window.detail.title.textFormat() == Qt.PlainText
-    assert not window.detail.locate_button.isEnabled()
-    assert not window.detail.open_button.isEnabled()
+    assert window.detail.locate_button.isHidden()
+    assert window.detail.open_button.isHidden()
     assert len(window.map.offline.markers) == 0
-    assert window.other_button.isVisible()
+    assert not window.other_button.isHidden()
 
 
 def test_same_coordinate_cluster_is_selectable(window):
@@ -164,9 +164,9 @@ def test_worker_runs_off_ui_thread(qtbot):
 
 def test_map_failure_fallback(window):
     window.map._fallback('test map failure')
-    assert window.map.mode.currentIndex() == 0
+    assert window.map.online is False
     assert window.map.active is window.map.offline
-    assert 'test map failure' in window.banner.text()
+    assert '오프라인 지도로 표시해요' in window.banner.text()
 
 
 def test_capture_review_screenshots(window):
