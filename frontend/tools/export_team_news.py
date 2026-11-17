@@ -111,9 +111,11 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.coordinate_cache:
-        prepare = lambda rows: prepare_with_cache(rows, args.coordinate_cache)
+        def prepare(rows):
+            return prepare_with_cache(rows, args.coordinate_cache)
     elif args.existing_coordinates:
-        prepare = lambda rows: rows
+        def prepare(rows):
+            return rows
     else:
         try:
             from map_visualization.map_visualization import prepare_news_for_frontend
