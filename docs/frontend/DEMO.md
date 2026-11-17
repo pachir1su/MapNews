@@ -14,7 +14,7 @@
 화면 색상은 시스템 설정을 따른다. 상세가 별도 창으로 열리지 않아 좁은 화면에서도 같은 동선을 사용한다.
 가상 기사에는 원문 버튼이 없으며 실제 데이터의 유효한 URL만 기본 브라우저에서 연다.
 
-이 문서는 사용 흐름 설명이다. 이번 변경의 실제 실행/시연은 아직 검증하지 않았다.
+GitHub Actions에서 Linux와 Windows의 프론트엔드 자동 검증을 수행한다. 아래 화면은 실제 Qt 실행 캡처로 생성한다.
 
 ## 실제 프론트엔드 화면
 
@@ -47,16 +47,50 @@ GitHub Actions Linux 검사에서 `mapnews-qt-screens` 아티팩트로 제공한
 
 ## 팀원 데이터 연동
 
-지도 시각화 코드가 합쳐진 작업 디렉터리에서는 다음과 같이
-`data_ai/results.json`에 좌표를 붙인 프론트엔드 입력 파일을 만들 수 있다.
+`frontend.tools.export_team_news`는 다른 팀원의 코드를 변경하지 않는 프론트엔드 입력 변환기다.
+변환된 9개 필드 JSON은 `python -m frontend --json`으로 열 수 있다. 기사 정보는 원본 값을
+보존하고, 좌표가 없는 기사는 목록에만 표시한다.
+
+### 팀 지도 코드가 현재 작업 디렉터리에 있는 경우
 
 ```bash
 python -m frontend.tools.export_team_news --input data_ai/results.json --output test-artifacts/team-news.json
 python -m frontend --json test-artifacts/team-news.json --mock-json
 ```
 
-위 명령은 기존 시연 데이터에 대한 예시다. 실제 수집한 기사로 검증할
-때는 `--mock-json`을 사용하지 않는다. 좌표가 없는 기사는 목록에
-남기고 지도에만 표시하지 않는다. 원본 데이터 파일이나 다른 팀원
-코드에는 변경을 가하지 않는다. 좌표 변환 모듈에는 `geopy`와
-`folium` 의존성이 필요하다.
+좌표 계산은 `map_visualization.map_visualization.prepare_news_for_frontend()`가 담당한다.
+`data_ai/results.json`은 가상 기사이므로 시연에서만 `--mock-json`을 붙인다.
+좌표 변환 모듈을 사용하려면 해당 팀 모듈과 `geopy`, `folium`이 설치되어 있어야 한다.
+
+### 프론트엔드 브랜치에서 독립 검증
+
+이미 팀원이 지역별로 확인하고 저장한 `map_visualization/.geocode_cache.json`이 있다면
+팀 지도 모듈을 가져오지 않아도 캐시의 **일치하는 지역명만** 좌표로 연결할 수 있다.
+이 옵션은 네트워크 검색을 하지 않으며 임의 좌표를 생성하지 않는다.
+
+```bash
+python -m frontend.tools.export_team_news --input news_results.json --coordinate-cache map_visualization/.geocode_cache.json --output test-artifacts/team-news.json
+python -m frontend --json test-artifacts/team-news.json
+```
+
+입력 파일에 실제 위도와 경도가 이미 있다면 다음 명령을 사용할 수 있다.
+
+```bash
+python -m frontend.tools.export_team_news --input news_results.json --existing-coordinates --output test-artifacts/team-news.json
+python -m frontend --json test-artifacts/team-news.json
+```
+
+좌표가 0건이면 출력 파일을 덮어쓰지 않고 중단한다.
+지역 정보가 없는 뉴스만 목록으로 보고 싶을 때만 `--allow-no-pins`를 명시한다.
+실제 수집 기사 파일에는 `--mock-json`을 쓰지 않는다.
+
+PR #6의 크롤러가 생성하는 파일은 `news_results.json`이고, AI 분석 스크립트의
+현재 입력은 `data_ai/dummy_news.json`으로 고정되어 있다. **실제 뉴스 → AI 분석 → 좌표 변환**
+과정 전체를 실행하려면 담당자 간 파일 경로/ID/분류 규격을 통일해야 한다.
+이 프론트엔드 도구가 그 단계들을 대신 수행하거나 자동으로 뉴스 진위를 판단하지는 않는다.
+
+### 확인 방법
+
+변환 결과에서 좌표가 있는 기사 수와 프론트엔드의 지도 마커가 나타나는지 확인한다.
+서로 가까운 좌표는 화면에서 군집 마커 하나로 묶일 수 있으므로 육안의 핀 수가 반드시
+기사 수와 같지는 않다. 검색과 필터, 기사 상세에서 같은 ID가 선택되는지도 확인한다.

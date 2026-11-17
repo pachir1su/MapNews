@@ -40,6 +40,17 @@ python -m frontend --json data_ai/results.json
 실제 좌표가 없는 기사에 프론트엔드가 임의 좌표를 붙이지 않는다. 백엔드가 선택 필드 두 개를
 추가하거나 별도 Provider에서 결합하면 된다. 시연 파일은 `--mock-json`을 함께 지정한다.
 
+
+## 수집 뉴스 좌표 연결 시 주의
+
+PR #3 브랜치는 다른 팀원의 지도 모듈 소스를 포함하지 않는다. 기존 기본 모드는 통합 작업
+디렉터리에 `map_visualization`이 있을 때 작동한다. 프론트엔드 브랜치 단독 실행에는
+`--coordinate-cache` 또는 `--existing-coordinates`를 사용한다. 두 옵션은 둘 중 하나만 선택한다.
+일치하는 지역명만 기존 좌표로 연결하며, 추정 좌표를 임의 생성하지 않는다.
+
+`--allow-no-pins`를 쓰지 않는 한 유효한 좌표가 0개인 내보내기를 거절하고 기존
+정상 JSON을 그대로 남긴다. 이 출력은 실제 수집 정보를 바꾸거나 Gemini 분석을 수행하지 않는다.
+
 ## 연결 방법 2: Provider 주입
 
 `frontend.providers.NewsProvider`의 `label`, `load(cancel)`만 구현하면 된다.
