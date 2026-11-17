@@ -89,7 +89,7 @@ class NewsDelegate(QStyledItemDelegate):
         painter.setPen(QColor(t['muted']))
         date = item.date_label[5:] if item.published_at else ''
         metadata = ' · '.join(part for part in (item.location, date) if part)
-        painter.drawText(QRect(x, y + 68, width, 20), Qt.AlignLeft | Qt.AlignVCenter,
+        painter.drawText(QRect(x, box.bottom() - 27, width, 20), Qt.AlignLeft | Qt.AlignVCenter,
                          painter.fontMetrics().elidedText(metadata, Qt.ElideRight, width))
         if option.state & QStyle.State_HasFocus:
             painter.setPen(QPen(QColor(t['accent']), 1.5))
