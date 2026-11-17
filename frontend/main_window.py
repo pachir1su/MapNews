@@ -2,7 +2,7 @@
 from PySide6.QtCore import QByteArray, QSettings, QSize, QThread, QTimer, Qt, Slot
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (QApplication, QComboBox, QFileDialog, QFrame,
-                               QHBoxLayout, QListView, QMainWindow, QPushButton,
+                               QGridLayout, QHBoxLayout, QListView, QMainWindow, QPushButton,
                                QLineEdit, QProgressBar, QSplitter, QVBoxLayout, QWidget, QToolButton, QMenu, QStackedWidget)
 from .detail import DetailPanel, label
 from .map_panel import MapPanel
@@ -212,9 +212,10 @@ class MainWindow(QMainWindow):
         filters = QVBoxLayout(self.filters_panel)
         filters.setContentsMargins(0, 4, 0, 8)
         filters.setSpacing(12)
-        self.category_layout = QHBoxLayout()
-        self.category_layout.setSpacing(4)
-        for category in CATEGORIES:
+        self.category_layout = QGridLayout()
+        self.category_layout.setHorizontalSpacing(6)
+        self.category_layout.setVerticalSpacing(6)
+        for index, category in enumerate(CATEGORIES):
             button = QPushButton(category)
             button.setCheckable(True)
             button.setChecked(True)
@@ -222,7 +223,7 @@ class MainWindow(QMainWindow):
             button.setAccessibleName(category + " 기사 포함")
             button.clicked.connect(self.apply_filters)
             self.category_buttons[category] = button
-            self.category_layout.addWidget(button)
+            self.category_layout.addWidget(button, index // 3, index % 3)
         filters.addLayout(self.category_layout)
         self.other_button = QPushButton("기타")
         self.other_button.setCheckable(True)

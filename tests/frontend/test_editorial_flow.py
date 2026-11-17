@@ -57,3 +57,14 @@ def test_escape_clears_search_when_search_is_focused(window):
     window.dismiss_detail()
     assert window.search.text() == ""
     assert window.search.hasFocus()
+
+
+def test_category_filter_buttons_wrap_into_two_rows(window):
+    # Keep all five categories reachable at the minimum sidebar width.
+    from frontend.models import CATEGORIES
+
+    assert len(window.category_buttons) == len(CATEGORIES)
+    assert window.category_layout.rowCount() == 2
+    assert window.category_layout.columnCount() == 3
+    for index, name in enumerate(CATEGORIES):
+        assert window.category_layout.itemAtPosition(index // 3, index % 3).widget() is window.category_buttons[name]
