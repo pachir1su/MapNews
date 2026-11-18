@@ -324,7 +324,6 @@ def collect_all_news():
 
                 news_list.append(news)
 
-                print(f"수집 완료: {title}")
 
         except Exception as e:
             print(f"{source} 수집 오류: {e}")
