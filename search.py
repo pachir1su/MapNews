@@ -5,6 +5,7 @@ import json
 import re
 import html
 import hashlib
+import random
 
 from html.parser import HTMLParser
 from datetime import datetime, timezone, timedelta
@@ -16,10 +17,10 @@ from email.utils import parsedate_to_datetime
 # ==========================================
 
 RSS_FEEDS = {
-    "뉴시스_사회": "https://www.newsis.com/RSS/society.xml",
-    "뉴시스_속보": "https://www.newsis.com/RSS/sokbo.xml",
+    # "뉴시스_사회": "https://www.newsis.com/RSS/society.xml",
+    # "뉴시스_속보": "https://www.newsis.com/RSS/sokbo.xml",
     "뉴시스_지방": "https://www.newsis.com/RSS/country.xml",
-    "조선일보": "https://www.chosun.com/arc/outboundfeeds/rss/category/national/?outputType=xml"
+    #"조선일보": "https://www.chosun.com/arc/outboundfeeds/rss/category/national/?outputType=xml"
 }
 
 OUTPUT_FILE = "news_results.json"
@@ -314,7 +315,6 @@ def collect_all_news():
                 article_id = len(news_list) + 1
 
                 news = {
-                    "id": article_id,
                     "title": title,
                     "summary": summary,
                     "url": link,
@@ -322,6 +322,7 @@ def collect_all_news():
                 }
 
                 news_list.append(news)
+                news_list = random.sample(news_list, min(30, len(news_list)))
 
 
         except Exception as e:
