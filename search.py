@@ -10,6 +10,7 @@ import tempfile
 import argparse
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from html.parser import HTMLParser
 from datetime import datetime, timezone, timedelta
