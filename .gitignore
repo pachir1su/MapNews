@@ -1,2 +1,17 @@
 .env
+.env.*
+!.env.example
 .vscode/
+.venv/
+venv/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+test-artifacts/
+*.tmp
+.DS_Store
+map_visualization/.geocode_cache.json
+map_visualization/news_map.html
+data_ai/results_ai.json
+data_ai/results_real.json

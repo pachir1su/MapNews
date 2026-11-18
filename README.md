@@ -1,104 +1,50 @@
-# 창의적공학설계 5조 팀 프로젝트
+# 창의적공학설계 5조 · MapNews
 
-**MapNews** · 한국기술교육대학교 — 뉴스의 사건 발생 위치를 지도에서 탐색하는 데스크톱 애플리케이션입니다.
+PySide6 기반 지도 뉴스 탐색 프로그램. 뉴스를 RSS로 수집하고, 기사 지역/분류를 분석한 뒤 지도와 목록에 보여줍니다.
 
-이번 브랜치에는 **독립 실행 가능한 프론트엔드**가 구현되어 있습니다. PySide6 GUI, 뉴스 탐색/상세,
-오프라인 지도, Folium 온라인 지도, Mock 데이터, 백엔드 연결 인터페이스를 포함합니다.
-뉴스 크롤링·Gemini 분석·SQLite 저장·실시간 뉴스 수집은 별도 팀원 영역이며 여기서 구현하지 않습니다.
-`data_ai`를 실행하거나 API 키를 요구하지 않습니다.
+## 실행 (Python 3.11 또는 3.12)
 
-## Windows에서 시작
+Windows PowerShell:
 
-Python **3.11 또는 3.12, 64비트** 환경을 사용합니다. 저장소 루트에서 PowerShell로 실행합니다.
-가상환경 활성화 없이도 아래 명령을 사용할 수 있습니다.
+    py -3.12 -m venv .venv
+    .\.venv\Scripts\python.exe -m pip install -r requirements-integration.txt
+    .\.venv\Scripts\python.exe run_pipeline.py --gui
 
-```powershell
-py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements-frontend.txt
-.\.venv\Scripts\python.exe -m frontend
-```
+Linux:
 
-## Linux/macOS에서 시작
+    python3 -m venv .venv
+    .venv/bin/python -m pip install -r requirements-integration.txt
+    .venv/bin/python run_pipeline.py --gui
 
-```bash
-python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements-frontend.txt
-.venv/bin/python -m frontend
-```
+- 기본값: 뉴시스 RSS 수집 → 기사 보관 → 로컬 규칙 기반 분류/지역 추출 → 기존 좌표 캐시만 사용 → GUI. Gemini API 키가 필요 없습니다.
+- 실제 데이터 갱신 없이 저장된 기사를 시연: python run_pipeline.py --skip-fetch --gui
+- 지도 타일 네트워크 없이 시작: python run_pipeline.py --skip-fetch --gui --offline-map
+- 새로운 지역의 Nominatim 좌표 조회를 명시적으로 허용: python run_pipeline.py --geocode --gui. 지명 대표 좌표는 사건의 실제 주소가 아닙니다. 대량 실행 시 공용 지오코딩 서비스 정책을 준수하세요.
+- Gemini 선택적 사용: pip install -r requirements-ai.txt 후 GEMINI_API_KEY 환경변수 설정, python run_pipeline.py --with-ai --max-ai-articles 30 --gui
+- GUI만 실행(기본 내장 시연용 20건): python -m frontend
+- 별도 실기사 JSON 열기: python -m frontend --json map_visualization/map_results.json
 
-기본 지도는 OpenStreetMap으로 인터넷이 필요합니다. 설치 후 `--offline`으로 시작하면 네트워크 없이 사용할 수 있습니다.
-Ubuntu에서 Qt 라이브러리가 부족하면 `libegl1 libopengl0 libxtst6 libxkbfile1 libxcb-cursor0
-libxkbcommon-x11-0 fonts-noto-cjk` 패키지가 필요할 수 있습니다. macOS 실기기 검증은 수행하지 않았습니다.
+## 데이터 경로와 제한
 
-## 실행 모드
+1. search.py: RSS 응답당 최대 2 MiB, 공급원당 1,000개 후보를 읽고 URL 기반 고정 ID와 본문 해시를 사용합니다. news_results.json은 최대 10,000건으로 증분 저장되며 동일 URL의 수정 기사를 갱신합니다. 수집 0건/전체 실패 시 기존 파일을 보호합니다.
+2. data_ai/rule_analysis.py: 기본값은 외부 AI API 없이 분류와 제목에 명시된 지역만 보수적으로 추출합니다. 위치를 못 찾으면 지도 핀을 임의 생성하지 않습니다. summary는 원문 일부를 발췌한 것으로 생성형 요약이 아닙니다.
+3. data_ai/analyze_news.py: 선택적 Gemini 경로. 요청당 5건, 기본 실행당 신규 30건 이하 및 호출 시도 최대 12회. 기존 내용 해시가 같으면 API 재요청하지 않습니다. 분석 불가·처리 보류는 다음 실행로 넘기고 규칙 결과를 유지합니다.
+4. map_visualization/map_visualization.py: 캐시된 좌표/명시적 지오코딩 결과를 붙입니다. 대표 좌표는 실제 사고 지점 확인 값이 아니며, 좌표가 없는 기사는 목록에서 볼 수 있습니다.
+5. frontend: 실제 결과는 --json 파일로 전달되며, 인수 없이 시작하면 더미 뉴스 20건을 보여줍니다. 시연용 기사 링크는 열지 않습니다.
 
-```bash
-python -m frontend                               # OpenStreetMap + 기본 제공 기사 20건
-python -m frontend --offline                     # 로컬 지도, 인터넷 없이 실행
-python -m frontend --json data_ai/results.json    # 외부 JSON, 읽기 전용
-python -m frontend --json demo.json --mock-json   # 외부 JSON을 가상 기사로 취급
-```
+파일 기록은 임시 파일 + 원자적 교체로 수행해 저장 중단 때 이전 정상 결과를 보호합니다. 한 번 실행해 만든 결과인지 구분하려면 생성 시간과 수집·분석·좌표 건수를 로그로 함께 확인해야 합니다.
 
-- **오프라인 옵션:** 로컬 Natural Earth/SGIS 벡터 지도에 미리 준비한 대표 좌표를 표시합니다. 클릭·군집 기사 선택·검색·다중 분류·지역·정렬·상세가 네트워크 없이 동작합니다. 시·도 경계가 표시되고 확대하면 시·군·구 경계가 나타납니다. 도로/건물 지도는 아닙니다. 경계 기준연도는 2026년 10월 1일 스냅샷입니다.
-- **기본 OpenStreetMap:** QtWebEngineView에 Folium/Leaflet 지도를 표시합니다. JS/CSS는 번들에 포함되어 있지만 OpenStreetMap 타일에는 인터넷이 필요합니다. 실패 시 오프라인 화면으로 전환합니다.
-- **Mock:** PR #2의 가상 기사 20개를 원문 그대로 사용합니다. 실제 사건/실시간 뉴스가 아닙니다. 가상 기사에는 원문 버튼을 표시하지 않습니다. 데이터 성격은 더 보기 → 정보에 설명합니다. 좌표는 시연용 지역 대표 위치입니다.
-- **백엔드 JSON:** 기존 PR #2 JSON과 호환됩니다. 좌표가 없는 기사는 목록/상세에만 표시됩니다. 프론트엔드가 실제 위치를 임의로 추정하지 않습니다.
+## 검증과 릴리즈
 
-## 조작
+    python -m pip install -r requirements-integration.txt
+    python -m pytest tests/integration -q
+    python -m pytest tests/frontend -m "not webengine" -q
+    python run_pipeline.py --skip-fetch
 
-| 조작 | 동작 |
-|---|---|
-| 목록 / 마커 클릭 | 왼쪽 목록 자리에 기사 상세 표시, 지도 선택 동기화 |
-| 목록 방향키 / Enter | 선택 이동 / 상세 열기 |
-| 상세 뒤로 버튼 / Esc | 목록 복귀; 검색 조건과 목록 위치 유지 |
-| 군집 마커 클릭 | 오프라인: 기사 선택 / 온라인: 확대·겹침 분리 |
-| 필터 | 카테고리·지역 조건 펼치기; 여러 분류 선택 가능 |
-| 검색 | 제목·요약·지역·분류, 여러 단어는 AND 검색 |
-| Ctrl+K / Ctrl+F | 검색창 포커스 |
-| F5 / 더 보기 → 새로고침 | 현재 Provider 다시 읽기 |
-| 지도 아이콘 | 확대·축소·전국·검색 결과 맞춤·지도 선택 |
-| 로딩 중 취소 아이콘 | 현재 작업에 취소 요청, 기존 기사 유지 |
-| 더 보기 → 뉴스 파일 열기 / 기본 데이터로 돌아가기 | 데이터 소스 변경 |
+GitHub Actions의 MapNews integration은 Linux/Python 3.11과 Windows/Python 3.12에서 코드 검사, 파이프라인 테스트, Qt 테스트와 저장된 실기사 기반 오프라인 통합 실행을 검증합니다. CI는 실시간 RSS/Gemini/Nominatim의 응답을 보장하지 않습니다.
 
-화면 색상은 **시스템 설정을 자동으로 따릅니다**. 수동 테마 버튼·단축키·저장 옵션은 없습니다.
-실행 중 시스템 화면 모양을 바꾸면 목록·상세·지도도 함께 갱신됩니다. 시스템이 화면 모양을 제공하지 않으면 밝은 화면으로 표시합니다.
+v0.1.0 태그는 docs/RELEASE_CHECKLIST.md의 실제 네트워크·GUI·릴리즈 조건을 통과한 뒤 생성합니다.
 
-하단 상시 상태 표시줄과 설명은 제거했습니다. 데이터·지도 출처와 단축키는 **더 보기 → 정보**에서 확인합니다.
-패널 폭은 드래그로 조정할 수 있습니다. 목록과 상세는 같은 왼쪽 패널을 사용하므로 좁은 창에서도 지도 공간을 유지합니다.
-오류가 나면 기존 데이터를 유지하고 안내를 표시합니다. 실제 데이터에서 유효한 원문 주소는 기본 브라우저로 엽니다.
+## 참고
 
-## 개발 상태와 테스트 인계
-
-이번 UI 개편은 개발 담당 범위로만 반영했으며 **테스트·OS별 실행·CI를 수행하지 않았습니다**.
-기존 테스트는 이전 화면 구조를 기준으로 하므로 테스트 담당자의 갱신과 실행이 필요합니다.
-이전 통과 기록을 현재 변경의 검증 결과로 사용하지 않습니다.
-
-- [이번 변경의 테스트 인계](docs/frontend/QA_HANDOFF.md)
-- [이전 버전 검증 기록](docs/frontend/VALIDATION.md)
-- [사용 흐름](docs/frontend/DEMO.md)
-
-## 읽기·파일 열기 단축키
-
-- 상세 위 이전/다음 버튼 또는 Alt+위/아래로 검색 결과 순서대로 읽습니다.
-- Ctrl+L 또는 검색창에서 아래 방향키로 목록에 이동하고, Enter로 상세를 엽니다.
-- Esc/Alt+왼쪽으로 목록에 돌아옵니다. Ctrl+O 또는 JSON 파일 드래그로 데이터를 엽니다.
-- 새 파일은 로딩 성공 후 적용합니다. 실패하면 기존 기사와 검색 조건이 남으며 재시도할 수 있습니다.
-- 더 보기 → 불러오기 정보에서 좌표 누락·제외된 행 등 데이터 경고를 확인합니다.
-
-## 기사 저장
-
-상세의 북마크 버튼 또는 **Ctrl+D**로 저장/해제하고, 목록 상단 북마크 버튼으로 모아봅니다.
-검색·분류·지역·정렬과 함께 사용할 수 있습니다. 저장 상태는 이 기기에 유지됩니다.
-현재 Provider가 제공하는 기사만 표시하며 기사 본문을 다운로드하거나 따로 보관하지 않습니다.
-파일을 바꿔도 저장 기록은 남고 동일한 기사를 다시 불러오면 표시됩니다. 최대 1,000건입니다.
-
-## 구조와 팀원 연결
-
-- [UI 개편 방향과 참고](docs/frontend/DESIGN.md)
-- [모듈 구조·디자인·스레드·지도](docs/frontend/ARCHITECTURE.md)
-- [JSON 계약·Provider 연결 방법](docs/frontend/DATA_CONTRACT.md)
-- [문제 해결](docs/frontend/TROUBLESHOOTING.md)
-- [원본 데이터와 로컬 지도 출처](frontend/resources/MAP_DATA.md)
-- [번들 라이브러리 라이선스](frontend/resources/vendor/README.md) · [SVG 아이콘 출처](frontend/resources/icons/README.md)
-
-main 직접 변경이나 PR #1/#2 병합 없이 별도 `frontend/desktop-news-explorer` 브랜치로 작업합니다.
+프론트엔드 상세 디자인·자료 계약·실행 방법: docs/frontend/DATA_CONTRACT.md, docs/frontend/DEMO.md. 지도 배경에는 OpenStreetMap 타일을 쓰며 출처 표시는 그대로 유지합니다.

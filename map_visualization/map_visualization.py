@@ -12,6 +12,7 @@
 import json  # 지역-좌표 검색 결과를 JSON 파일에 저장
 import math  # 위도/경도의 숫자 유효성 검사
 import os    # Nominatim 사용자 식별 문자열 설정
+import tempfile
 
 # 뉴스 제목 등에 들어 있는 HTML 특수문자를 안전하게 처리
 from html import escape
@@ -157,6 +158,27 @@ def parse_coordinates(latitude, longitude):
     return [lat, lon]
 
 
+
+
+def atomic_write_json(path, payload):
+    """Keep last valid cache/output on disk or process failure."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=path.parent,
+            prefix=".mapnews-", suffix=".tmp", delete=False
+        ) as stream:
+            temporary = Path(stream.name)
+            json.dump(payload, stream, ensure_ascii=False, indent=2, allow_nan=False)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None and temporary.exists():
+            temporary.unlink()
+
 # ============================================================
 # 함수 2. 저장된 좌표 캐시 불러오기
 # ============================================================
@@ -228,8 +250,7 @@ def save_coordinate_cache(cache):
 
     # 캐시는 성능 개선용이다. 저장에 실패해도 뉴스 목록은 유지한다.
     try:
-        with CACHE_FILE.open("w", encoding="utf-8") as file:
-            json.dump(saved, file, ensure_ascii=False, indent=2)
+        atomic_write_json(CACHE_FILE, saved)
     except OSError as exc:
         print(f"좌표 캐시 저장 실패(뉴스 처리는 계속 진행): {exc}")
 
@@ -336,7 +357,8 @@ def prepare_news_for_frontend(news_list, *, geocode_missing=True):
     # 프론트엔드가 기대하는 필드 이름을 고정한다.
     fields = (
         "id", "title", "category", "location", "summary",
-        "url", "datetime"
+        "url", "datetime", "source", "publisher", "content_hash",
+        "analysis_status", "coordinate_note"
     )
 
     for news in news_list:
@@ -372,6 +394,10 @@ def prepare_news_for_frontend(news_list, *, geocode_missing=True):
         else:
             news_data["latitude"] = coordinates[0]
             news_data["longitude"] = coordinates[1]
+            if not news_data.get("coordinate_note"):
+                news_data["coordinate_note"] = (
+                    "행정구역 대표 좌표일 수 있으며 실제 사건 지점은 검증되지 않았습니다."
+                )
 
         frontend_news_list.append(news_data)
 
@@ -700,6 +726,9 @@ if __name__ == "__main__":
         else BASE_DIR / "map_results.json"
     )
 
+    if input_path.resolve() == output_path.resolve():
+        raise SystemExit("지도 입력 파일과 출력 파일은 서로 달라야 합니다.")
+
     if not input_path.exists():
         print(f"입력 파일을 찾을 수 없습니다: {input_path}")
     else:
@@ -712,7 +741,8 @@ if __name__ == "__main__":
         frontend_news = prepare_news_for_frontend(news_list)
 
         # 최종 JSON 파일 저장
-        with output_path.open("w", encoding="utf-8") as file:
-            json.dump(frontend_news, file, ensure_ascii=False, indent=2)
+        if not frontend_news:
+            raise ValueError("유효한 뉴스 0건: 이전 지도 결과 보존")
+        atomic_write_json(output_path, frontend_news)
 
         print(f"완료! 좌표가 추가된 파일이 저장되었습니다: {output_path}")
