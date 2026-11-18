@@ -4,6 +4,7 @@ import sys
 import json
 import time
 import hashlib
+from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from email.utils import parsedate_to_datetime
 
@@ -274,6 +275,8 @@ def main():
     is_demo = "dummy" in os.path.basename(input_path).lower()
     source = "demo" if is_demo else "real"
     output_path = sys.argv[2] if len(sys.argv) > 2 else (DEMO_OUTPUT if is_demo else REAL_OUTPUT)
+    if Path(input_path).resolve() == Path(output_path).resolve():
+        raise SystemExit("입력 파일과 AI 결과 출력 파일은 서로 달라야 합니다.")
 
     # 1. 기사 읽기
     with open(input_path, encoding="utf-8") as f:

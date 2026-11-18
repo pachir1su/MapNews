@@ -726,6 +726,9 @@ if __name__ == "__main__":
         else BASE_DIR / "map_results.json"
     )
 
+    if input_path.resolve() == output_path.resolve():
+        raise SystemExit("지도 입력 파일과 출력 파일은 서로 달라야 합니다.")
+
     if not input_path.exists():
         print(f"입력 파일을 찾을 수 없습니다: {input_path}")
     else:

@@ -103,6 +103,11 @@ def main(argv=None):
     parser.add_argument("--map-output", type=Path,
                         default=Path("map_visualization/map_results.json"))
     args = parser.parse_args(argv)
+    io_paths = [args.archive, args.analysis_output, args.map_output]
+    if args.with_ai:
+        io_paths.append(Path("data_ai/results_ai.json"))
+    if len({str(path.resolve()) for path in io_paths}) != len(io_paths):
+        raise ValueError("입력·출력 파일 경로가 같거나 심볼릭 링크로 겹칩니다.")
     if args.max_ai_articles < 0 or args.max_ai_articles > 1000:
         parser.error("--max-ai-articles는 0~1000 범위여야 합니다.")
     if not args.skip_fetch:

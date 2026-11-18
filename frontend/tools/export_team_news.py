@@ -49,6 +49,8 @@ def prepare_with_cache(rows: list[dict], cache_path: Path) -> list[dict]:
 def export_news(input_file: Path, output_file: Path, prepare, *,
                 require_pins: bool = False) -> tuple[int, int]:
     """Prepare rows, validate their frontend shape, and atomically export JSON."""
+    if input_file.resolve() == output_file.resolve():
+        raise ValueError("입력 JSON과 출력 JSON은 서로 다른 경로여야 합니다.")
     if not input_file.is_file():
         raise FileNotFoundError(input_file)
     if input_file.stat().st_size > 8 * 1024 * 1024:

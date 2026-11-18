@@ -184,3 +184,24 @@ def test_prior_coordinate_not_reused_for_changed_title_or_demo():
     old_demo = [{"url": demo[0]["url"], "title": demo[0]["title"],
                  "latitude": 36.8, "longitude": 127.1, "source": "demo"}]
     assert "latitude" not in run_pipeline.retain_prior_coordinates(demo, old_demo)[0]
+
+
+
+def test_pipeline_rejects_aliased_output_without_mutation(tmp_path):
+    archive = tmp_path / "archive.json"
+    archive.write_text(json.dumps([sample("https://example.org/one")]), encoding="utf-8")
+    old = archive.read_bytes()
+    with pytest.raises(ValueError, match="입력·출력"):
+        run_pipeline.main(["--skip-fetch", "--archive", str(archive),
+                           "--map-output", str(archive)])
+    assert archive.read_bytes() == old
+
+
+def test_frontend_export_rejects_overwriting_source(tmp_path):
+    from frontend.tools.export_team_news import export_news
+    source = tmp_path / "source.json"
+    source.write_text(json.dumps([sample("https://example.org/one")]), encoding="utf-8")
+    before = source.read_bytes()
+    with pytest.raises(ValueError, match="서로 다른"):
+        export_news(source, source, lambda rows: rows)
+    assert source.read_bytes() == before
