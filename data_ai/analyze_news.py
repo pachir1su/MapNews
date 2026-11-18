@@ -23,6 +23,9 @@ DEMO_OUTPUT = "data_ai/results.json"        # 더미 분석 결과
 REAL_OUTPUT = "data_ai/results_real.json"   # 실제(크롤러) 분석 결과
 
 BATCH_SIZE = 5            # 한 번 요청에 보낼 기사 수
+MAX_AI_ARTICLES_PER_RUN = max(0, min(1000, int(os.getenv("MAPNEWS_MAX_AI_ARTICLES", "30"))))
+MAX_AI_REQUESTS_PER_RUN = max(1, min(60, int(os.getenv("MAPNEWS_MAX_AI_REQUESTS", "12"))))
+_api_attempts = 0
 MAX_BODY_CHARS = 1500     # 기사 본문은 이 글자 수까지만 AI에게 보내요
 KST = timezone(timedelta(hours=9))
 
@@ -43,10 +46,15 @@ def get_client():
 
 
 def ask_gemini(prompt):
-    """모델을 바꿔 가며 시도해요. 성공하면 글을, 전부 실패하면 None을 돌려줘요."""
+    """Respect the total request budget, including retries and model fallbacks."""
+    global _api_attempts
     for model_name in MODEL_LIST:
         for attempt in range(1, 3):
+            if _api_attempts >= MAX_AI_REQUESTS_PER_RUN:
+                print("Gemini 요청 예산 소진: 남은 기사는 다음 실행으로 보류합니다.")
+                return None
             try:
+                _api_attempts += 1
                 print(f"  [{model_name}] {attempt}번째 시도...")
                 response = get_client().models.generate_content(
                     model=model_name,
@@ -123,6 +131,9 @@ def normalize_article(raw):
         "url": url,
         "datetime": normalize_datetime(raw.get("datetime") or raw.get("date")),
         "hint": str(raw.get("location") or raw.get("region") or "").strip(),
+        "content_hash": str(raw.get("content_hash") or hashlib.sha256(
+            (title + "\n" + str(raw.get("body") or raw.get("summary") or "")).encode("utf-8")
+        ).hexdigest()),
     }
 
 
@@ -244,7 +255,10 @@ def analyze_batch(batch, source):
             "summary": str(item.get("summary") or "").strip(),
             "url": original["url"],                         # 원본 값 그대로
             "datetime": original["datetime"],               # 원본 값 그대로
-            "source": source,
+            "source": ("demo" if original["url"].startswith("https://example.com/")
+                       else source),
+            "content_hash": original["content_hash"],
+            "analysis_status": "gemini",
         }
         if is_valid_result(result):
             good.append(result)
@@ -276,8 +290,13 @@ def main():
 
     # 2. 이미 분석한 결과 불러오기 (다시 안 부르려고)
     results = load_existing(output_path, source)
+    input_hashes = {a["id"]: a["content_hash"] for a in articles}
+    results = [item for item in results if
+               item["id"] not in input_hashes or
+               item.get("content_hash") == input_hashes[item["id"]]]
     done_ids = {item["id"] for item in results}
-    todo = [a for a in articles if a["id"] not in done_ids]
+    pending = [a for a in articles if a["id"] not in done_ids]
+    todo = pending[:MAX_AI_ARTICLES_PER_RUN]
     print(f"입력 {len(articles)}개 / 이미 분석 {len(done_ids)}개 / 이번에 분석 {len(todo)}개 ({source})\n")
 
     # 3. 5개씩 묶어서 분석하기
@@ -296,7 +315,10 @@ def main():
         print(f"  저장 완료 (누적 {len(results)}개)\n")
 
     save_json_safely(output_path, results)
-    print(f"끝! 결과 {len(results)}개 -> {output_path} (실패·보류 {failed}개)")
+    deferred = len(pending) - len(todo)
+    print(f"끝! 결과 {len(results)}개 -> {output_path} (실패 {failed}개 / 예산 보류 {deferred}개)")
+    if failed:
+        raise SystemExit(3)
 
 
 if __name__ == "__main__":

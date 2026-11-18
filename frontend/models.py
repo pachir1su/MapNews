@@ -53,6 +53,7 @@ class NewsItem:
     longitude: float | None = None
     is_mock: bool = False
     coordinate_note: str = ""
+    source: str = "unknown"
 
     @property
     def has_coordinates(self) -> bool:
@@ -111,8 +112,12 @@ def parse_news(payload: object, *, is_mock: bool = False,
             warnings.append(f"{identifier}: 알 수 없는 분류 '{category}'를 원문대로 표시")
         lat = coordinate(row.get("latitude"), 90)
         lon = coordinate(row.get("longitude"), 180)
-        note = ""
-        if is_mock and coordinates and identifier in coordinates and lat is None and lon is None:
+        article_source = text(row.get("source"), "unknown", 80)
+        from urllib.parse import urlsplit
+        host = urlsplit(safe_url(row.get("url"))).hostname
+        row_is_mock = is_mock or article_source in {"demo", "mock"} or host == "example.com"
+        note = text(row.get("coordinate_note"), limit=500)
+        if row_is_mock and coordinates and identifier in coordinates and lat is None and lon is None:
             lat, lon = coordinates[identifier]
             lat, lon = coordinate(lat, 90), coordinate(lon, 180)
             note = "시연용 지역 대표 좌표 · 실제 사건 지점이 아닙니다"
@@ -126,5 +131,5 @@ def parse_news(payload: object, *, is_mock: bool = False,
             identifier, text(row.get("title"), "제목 미제공", 1000), category,
             text(row.get("location"), "지역 미제공", 500),
             text(row.get("summary"), "요약이 아직 제공되지 않았습니다."),
-            url, date, lat, lon, is_mock, note))
+            url, date, lat, lon, row_is_mock, note, article_source))
     return NewsBatch(tuple(items), tuple(warnings), source)

@@ -5,7 +5,12 @@ import json
 import re
 import html
 import hashlib
-import random
+import os
+import tempfile
+import argparse
+import sys
+from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 
 from html.parser import HTMLParser
 from datetime import datetime, timezone, timedelta
@@ -119,7 +124,10 @@ def fetch_url(url):
     )
 
     with urllib.request.urlopen(request, timeout=15) as response:
-        return response.read()
+        data = response.read(2 * 1024 * 1024 + 1)
+        if len(data) > 2 * 1024 * 1024:
+            raise ValueError("RSS 응답이 2 MiB를 초과했습니다.")
+        return data
 
 
 # ==========================================
@@ -127,7 +135,8 @@ def fetch_url(url):
 # ==========================================
 
 def parse_rss(data):
-
+    if b"<!DOCTYPE" in data.upper() or b"<!ENTITY" in data.upper():
+        raise ValueError("DTD/ENTITY가 포함된 RSS는 처리하지 않습니다.")
     root = ET.fromstring(data)
 
     articles = []
@@ -259,113 +268,187 @@ def fetch_article_text(article, source):
 
 
 # ==========================================
-# 8. 기사 ID 생성
+# 8. Stable identity and safe archive storage
 # ==========================================
+
+MAX_ARCHIVE_ARTICLES = 10000
+MAX_FEED_ITEMS = 1000
+TRACKING_KEYS = {"fbclid", "gclid", "mc_cid", "mc_eid", "igshid"}
+
+
+def canonical_url(url):
+    """Keep significant query keys; discard common tracking keys and fragments."""
+    from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
+    try:
+        parts = urlsplit(str(url).strip())
+        if (parts.scheme.lower() not in ("https", "http") or not parts.hostname
+                or parts.username or parts.password):
+            return ""
+        host = parts.hostname.lower()
+        port = parts.port
+        if port and (parts.scheme.lower(), port) not in {("https", 443), ("http", 80)}:
+            host += ":" + str(port)
+        query = urlencode(sorted((k, v) for k, v in parse_qsl(
+            parts.query, keep_blank_values=True
+        ) if not k.lower().startswith("utm_") and k.lower() not in TRACKING_KEYS))
+        return urlunsplit((parts.scheme.lower(), host, parts.path or "/", query, ""))
+    except (TypeError, ValueError):
+        return ""
+
 
 def make_article_id(url):
+    return "news-" + hashlib.sha256(url.encode("utf-8")).hexdigest()[:20]
 
-    return hashlib.sha1(
-        url.encode("utf-8")
-    ).hexdigest()[:12]
+
+def article_fingerprint(title, summary):
+    normalized = (str(title).strip() + "\n" + str(summary).strip())
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def normalize_article(row):
+    if not isinstance(row, dict):
+        return None
+    url = canonical_url(row.get("url") or row.get("link"))
+    title = str(row.get("title") or "").strip()
+    if not url or not title:
+        return None
+    summary = str(row.get("summary") or row.get("body") or row.get("description") or "").strip()
+    item = dict(row)
+    item.update({
+        "id": make_article_id(url),
+        "title": title,
+        "url": url,
+        "summary": summary,
+        "datetime": str(row.get("datetime") or row.get("date") or "").strip(),
+        "content_hash": article_fingerprint(title, summary),
+        "source": "demo" if urlsplit(url).hostname == "example.com" else "real",
+    })
+    return item
+
+
+def load_archive(path=OUTPUT_FILE):
+    path = Path(path)
+    if not path.exists():
+        return []
+    with path.open("rb") as stream:
+        content = stream.read(32 * 1024 * 1024 + 1)
+    if len(content) > 32 * 1024 * 1024:
+        raise ValueError("기사 저장 파일이 32 MiB를 초과했습니다.")
+    data = json.loads(content.decode("utf-8-sig"))
+    if not isinstance(data, list):
+        raise ValueError("기존 뉴스 저장 파일은 JSON 배열이어야 합니다.")
+    deduplicated = {}
+    for row in data:
+        entry = normalize_article(row)
+        if entry is not None:
+            deduplicated[entry["id"]] = entry
+    if data and not deduplicated:
+        raise ValueError("기존 뉴스 파일에서 유효한 기사를 찾지 못했습니다.")
+    return list(deduplicated.values())
+
+
+def save_json(news_list, path=OUTPUT_FILE):
+    """Atomic replacement: neither empty input nor interrupted writes destroy the archive."""
+    if not news_list:
+        raise ValueError("기사 0건인 결과로 기존 저장 파일을 덮어쓰지 않습니다.")
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=path.parent,
+            prefix=".mapnews-", suffix=".tmp", delete=False
+        ) as stream:
+            temporary = Path(stream.name)
+            json.dump(news_list, stream, ensure_ascii=False, indent=2, allow_nan=False)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None and temporary.exists():
+            temporary.unlink()
 
 
 # ==========================================
-# 9. 전체 뉴스 수집
+# 9. RSS candidate retrieval
 # ==========================================
 
 def collect_all_news():
-
-    news_list = []
+    news_by_id = {}
     checked_count = 0
-    seen_links = set()
-    seen_titles = set()
+    successes = 0
+    failures = []
+    now = datetime.now(KST).isoformat(timespec="seconds")
 
     for source, rss_url in RSS_FEEDS.items():
-
-        print(f"\n[{source}] RSS 수집 시작")
-
         try:
-            rss_data = fetch_url(rss_url)
-
-            articles = parse_rss(rss_data)
-
+            articles = parse_rss(fetch_url(rss_url))
+            successes += 1
             checked_count += len(articles)
-
-            print(f"확인한 기사: {len(articles)}개")
-
-            for article in articles:
-
-                link = article["link"]
+            for article in articles[:MAX_FEED_ITEMS]:
                 title = article["title"].strip()
-
-                # 기사 본문 가져오기
                 summary = fetch_article_text(article, source)
-
-                # 한국어 기사인지 확인
                 if not is_korean_article(title, summary):
                     continue
+                item = normalize_article({
+                    "title": title, "summary": summary,
+                    "url": article["link"], "datetime": format_date(article["date"]),
+                    "publisher": source, "fetched_at": now,
+                })
+                if item:
+                    news_by_id[item["id"]] = item
+        except (OSError, ValueError, ET.ParseError) as exc:
+            failures.append(f"{source}: {type(exc).__name__}: {exc}")
+            print("수집 오류:", failures[-1], file=sys.stderr)
 
-                # URL 및 제목 기준 중복 제거
-                if link in seen_links or title in seen_titles:
-                    continue
-
-                seen_links.add(link)
-                seen_titles.add(title)
-
-                article_id = len(news_list) + 1
-
-                news = {
-                    "title": title,
-                    "summary": summary,
-                    "url": link,
-                    "datetime": format_date(article["date"]),
-                }
-
-                news_list.append(news)
-                news_list = random.sample(news_list, min(30, len(news_list)))
+    if not successes or not news_by_id:
+        raise RuntimeError("새 뉴스 수집 결과가 0건입니다. 이전 파일은 그대로 유지합니다.")
+    if failures:
+        print(f"일부 RSS 오류 {len(failures)}건. 정상 공급원 기사는 보존합니다.", file=sys.stderr)
+    return list(news_by_id.values()), checked_count
 
 
-        except Exception as e:
-            print(f"{source} 수집 오류: {e}")
+def merge_archive(old, incoming, *, maximum=MAX_ARCHIVE_ARTICLES):
+    if not incoming:
+        raise ValueError("빈 수집 결과는 기존 데이터를 갱신하지 않습니다.")
+    merged = {item["id"]: item for item in (normalize_article(x) for x in old) if item}
+    added = updated = unchanged = 0
+    for raw in incoming:
+        item = normalize_article(raw)
+        if not item:
+            continue
+        previous = merged.get(item["id"])
+        if previous is None:
+            added += 1
+            merged[item["id"]] = item
+        elif previous["content_hash"] != item["content_hash"]:
+            updated += 1
+            merged[item["id"]] = item
+        else:
+            unchanged += 1
+            merged[item["id"]] = dict(previous, fetched_at=item.get("fetched_at", previous.get("fetched_at")))
+    result = sorted(merged.values(), key=lambda x: (x.get("datetime") or "", x["id"]), reverse=True)
+    if maximum < 1:
+        raise ValueError("최대 보관 건수는 1 이상이어야 합니다.")
+    return result[:maximum], {"new": added, "updated": updated, "unchanged": unchanged}
 
-    return news_list, checked_count
 
-
-# ==========================================
-# 10. JSON 파일 저장
-# ==========================================
-
-def save_json(news_list):
-
-    with open(OUTPUT_FILE, "w", encoding="utf-8") as file:
-
-        json.dump(
-            news_list,
-            file,
-            ensure_ascii=False,
-            indent=4
-        )
-
-    print(f"\nJSON 저장 완료: {OUTPUT_FILE}")
-
-
-# ==========================================
-# 11. 프로그램 실행
-# ==========================================
-
-def main():
-
-    print("뉴스 수집을 시작합니다.")
-
-    news_list, checked_count = collect_all_news()
-
-    save_json(news_list)
-
-    print("\n========== 수집 결과 ==========")
-    print(f"확인한 전체 기사 수: {checked_count}개")
-    print(f"중복 제거 후 수집 기사 수: {len(news_list)}개")
-    print("================================")
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="MapNews RSS 안전 수집")
+    parser.add_argument("--output", default=OUTPUT_FILE)
+    args = parser.parse_args(argv)
+    incoming, checked = collect_all_news()
+    old = load_archive(args.output)
+    archive, stats = merge_archive(old, incoming)
+    save_json(archive, args.output)
+    print(f"RSS 확인 {checked}건 / 신규 {stats['new']}건 / 갱신 {stats['updated']}건 / "
+          f"재사용 {stats['unchanged']}건 / 보관 {len(archive)}건")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        raise SystemExit(main())
+    except (OSError, ValueError, RuntimeError) as exc:
+        print(f"뉴스 수집 실패: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
