@@ -10,7 +10,6 @@ import tempfile
 import argparse
 import sys
 from pathlib import Path
-from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 
 from html.parser import HTMLParser
 from datetime import datetime, timezone, timedelta
@@ -447,6 +446,12 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
+    for _stream in (sys.stdout, sys.stderr):
+        if hasattr(_stream, "reconfigure"):
+            try:
+                _stream.reconfigure(errors="backslashreplace")
+            except (OSError, ValueError):
+                pass
     try:
         raise SystemExit(main())
     except (OSError, ValueError, RuntimeError) as exc:

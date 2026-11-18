@@ -160,3 +160,27 @@ def test_max_archive_and_stable_newest_order():
     output, _ = search.merge_archive([], entries, maximum=2)
     assert len(output) == 2
     assert output[0]["datetime"] == "2026-11-04 00:00"
+
+
+
+def test_existing_same_headline_pin_is_reused_but_not_claimed_exact():
+    news = enrich([sample("https://example.org/one",
+                          title="충남 천안시 교통사고")])
+    old = [{
+        "url": "https://example.org/one", "title": news[0]["title"],
+        "latitude": 36.8, "longitude": 127.1, "source": "real"
+    }]
+    result = run_pipeline.retain_prior_coordinates(news, old)
+    assert result[0]["latitude"] == 36.8
+    assert "실제 발생 주소는 확인되지" in result[0]["coordinate_note"]
+
+
+def test_prior_coordinate_not_reused_for_changed_title_or_demo():
+    rows = enrich([sample("https://example.org/one", title="새 기사")])
+    old = [{"url": "https://example.org/one", "title": "이전 기사",
+            "latitude": 36.8, "longitude": 127.1}]
+    assert "latitude" not in run_pipeline.retain_prior_coordinates(rows, old)[0]
+    demo = enrich([sample("https://example.com/test/1", title="가상 기사")])
+    old_demo = [{"url": demo[0]["url"], "title": demo[0]["title"],
+                 "latitude": 36.8, "longitude": 127.1, "source": "demo"}]
+    assert "latitude" not in run_pipeline.retain_prior_coordinates(demo, old_demo)[0]

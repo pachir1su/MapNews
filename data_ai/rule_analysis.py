@@ -4,9 +4,7 @@ Rule-based results are intentionally conservative: an unknown incident location
 stays unknown. A reporter's "[서울=...]" dateline is not a verified event location.
 """
 import re
-from urllib.parse import urlsplit
-
-from search import article_fingerprint, normalize_article
+from search import normalize_article
 
 CATEGORIES = ("사고", "화재", "교통", "행사", "사회")
 REGIONS = (

@@ -56,6 +56,36 @@ def apply_optional_ai(baseline, input_path, ai_path, limit):
     return merged
 
 
+
+
+def retain_prior_coordinates(rows, prior_map):
+    """Reuse only same URL+headline coordinates already present in a prior map.
+
+    They remain approximate regional pins; never claim incident-location accuracy.
+    """
+    from frontend.models import coordinate
+    lookup = {}
+    for old in prior_map:
+        if not isinstance(old, dict) or old.get("source") in {"demo", "mock"}:
+            continue
+        if str(old.get("url") or "").startswith("https://example.com/"):
+            continue
+        lat = coordinate(old.get("latitude"), 90)
+        lon = coordinate(old.get("longitude"), 180)
+        if lat is not None and lon is not None:
+            lookup[(old.get("url"), old.get("title"))] = (lat, lon)
+    merged = []
+    for raw in rows:
+        row = dict(raw)
+        old_coordinate = lookup.get((row.get("url"), row.get("title")))
+        if old_coordinate and row.get("source") == "real":
+            row["latitude"], row["longitude"] = old_coordinate
+            row["coordinate_note"] = (
+                "이전 지도 데이터의 지역 대표 좌표 재사용. 실제 발생 주소는 확인되지 않았습니다."
+            )
+        merged.append(row)
+    return merged
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="MapNews 전체 데이터 파이프라인")
     parser.add_argument("--skip-fetch", action="store_true",
@@ -90,7 +120,9 @@ def main(argv=None):
             baseline, args.archive, Path("data_ai/results_ai.json"), args.max_ai_articles
         )
     from map_visualization.map_visualization import prepare_news_for_frontend, atomic_write_json
-    mapped = prepare_news_for_frontend(baseline, geocode_missing=args.geocode)
+    previous_map = load_optional(args.map_output)
+    baseline_for_map = retain_prior_coordinates(baseline, previous_map)
+    mapped = prepare_news_for_frontend(baseline_for_map, geocode_missing=args.geocode)
     if not mapped:
         raise ValueError("유효한 뉴스가 없어 기존 지도 결과를 보존합니다.")
     # The map output is written first; a crash never destroys either old valid file.
@@ -110,6 +142,12 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
+    for _stream in (sys.stdout, sys.stderr):
+        if hasattr(_stream, "reconfigure"):
+            try:
+                _stream.reconfigure(errors="backslashreplace")
+            except (OSError, ValueError):
+                pass
     try:
         raise SystemExit(main())
     except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as exc:
