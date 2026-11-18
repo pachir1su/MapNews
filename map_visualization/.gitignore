@@ -1,0 +1,12 @@
+# 자동으로 생성되는 지도 및 좌표 캐시
+feature/map_visualization/news_map.html
+feature/map_visualization/.geocode_cache.json
+
+# 프론트엔드 데이터 변환 결과
+data_ai/frontend_news_with_coordinates.json
+mapnews_issue10_preview.html
+
+# API 키와 Python 임시 파일
+.env
+.venv/
+__pycache__/
