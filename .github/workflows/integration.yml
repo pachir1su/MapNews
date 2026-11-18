@@ -54,6 +54,13 @@ jobs:
         run: python -m pytest tests/frontend -m "webengine" -q --timeout=90
       - name: Offline full-stage smoke using stored real data
         run: python run_pipeline.py --skip-fetch --archive news_results.json --analysis-output test-artifacts/integration-analysis.json --map-output test-artifacts/integration-map.json
+      - name: Render real team JSON in native PySide6
+        if: runner.os == 'Linux'
+        run: python -m frontend.tools.capture_real --input map_visualization/map_results.json --output test-artifacts/real-screenshots
+      - name: Probe live RSS provider (advisory only)
+        if: runner.os == 'Linux'
+        continue-on-error: true
+        run: python search.py --output test-artifacts/rss-live.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
