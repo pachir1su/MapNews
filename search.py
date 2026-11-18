@@ -319,7 +319,6 @@ def collect_all_news():
                     "summary": summary,
                     "url": link,
                     "datetime": format_date(article["date"]),
-                    "writer": article["writer"]
                 }
 
                 news_list.append(news)
