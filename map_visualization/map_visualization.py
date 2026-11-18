@@ -11,6 +11,7 @@
 
 import json  # 지역-좌표 검색 결과를 JSON 파일에 저장
 import math  # 위도/경도의 숫자 유효성 검사
+import os    # Nominatim 사용자 식별 문자열 설정
 
 # 뉴스 제목 등에 들어 있는 HTML 특수문자를 안전하게 처리
 from html import escape
@@ -46,6 +47,12 @@ MAP_CENTER = [36.5, 127.8]
 # 초기 지도 확대 수준
 MAP_ZOOM = 7
 
+# 국내 사건 위치를 표시하는 프로젝트이므로 다른 나라의 잘못된 검색 결과를 방지한다.
+# 해외 뉴스도 시각화해야 한다면 False로 변경하고 지명 검색 정책을 함께 수정한다.
+KOREA_ONLY = True
+# 대한민국 본토와 부속 도서를 포함하는 대략적인 범위(엄밀한 국경선 아님)
+KOREA_BOUNDS = (33.0, 39.0, 124.0, 132.0)
+
 
 # Gemini API에서 분류한 뉴스 카테고리에 따라
 # 지도 위의 마커 색상을 구분한다.
@@ -77,7 +84,10 @@ CATEGORY_COLORS = {
 # timeout:
 #   서버 응답을 기다리는 최대 시간(초)이다.
 _geolocator = Nominatim(
-    user_agent="MapNewsStudentProject/1.0 (map-visualization)",
+    user_agent=os.getenv(
+        "MAPNEWS_USER_AGENT",
+        "MapNewsStudentProject/1.0 (github.com/pachir1su/MapNews)"
+    ),
     timeout=10,
 )
 
@@ -116,6 +126,9 @@ def parse_coordinates(latitude, longitude):
     # DB에서 전달받은 좌표가 문자열일 수도 있으므로
     # float()을 통해 실수형으로 변환한다.
     try:
+        # True/False는 float()로 1.0/0.0이 될 수 있으므로 좌표로 사용하지 않는다.
+        if isinstance(latitude, bool) or isinstance(longitude, bool):
+            return None
         lat = float(latitude)
         lon = float(longitude)
 
@@ -130,6 +143,16 @@ def parse_coordinates(latitude, longitude):
     # 위도는 -90~90, 경도는 -180~180 범위여야 한다.
     if not (-90 <= lat <= 90 and -180 <= lon <= 180):
         return None
+
+    # (0, 0)은 값이 누락됐을 때 관례적으로 들어가는 가짜 좌표이다.
+    if lat == 0 and lon == 0:
+        return None
+
+    # 한국 지도 프로젝트에서 한국 밖의 핀이 생기지 않도록 방지한다.
+    if KOREA_ONLY:
+        min_lat, max_lat, min_lon, max_lon = KOREA_BOUNDS
+        if not (min_lat <= lat <= max_lat and min_lon <= lon <= max_lon):
+            return None
 
     return [lat, lon]
 
@@ -203,13 +226,12 @@ def save_coordinate_cache(cache):
         if coords is not None
     }
 
-    with CACHE_FILE.open("w", encoding="utf-8") as file:
-        json.dump(
-            saved,
-            file,
-            ensure_ascii=False,
-            indent=2
-        )
+    # 캐시는 성능 개선용이다. 저장에 실패해도 뉴스 목록은 유지한다.
+    try:
+        with CACHE_FILE.open("w", encoding="utf-8") as file:
+            json.dump(saved, file, ensure_ascii=False, indent=2)
+    except OSError as exc:
+        print(f"좌표 캐시 저장 실패(뉴스 처리는 계속 진행): {exc}")
 
 
 # ============================================================
@@ -230,8 +252,8 @@ def get_coordinates(place_name, cache):
     # 입력받은 지역 이름을 문자열로 변환한다.
     place_name = str(place_name or "").strip()
 
-    # 지역 정보가 없다면 임의의 위치를 지정하지 않는다.
-    if not place_name:
+    # 분석 결과에 위치 정보가 없는 경우에는 검색하지 않는다.
+    if place_name.lower() in {"", "미상", "알 수 없음", "없음", "n/a", "null", "none"}:
         return None
 
     # 캐시에 이미 존재하는 지역이라면
@@ -239,8 +261,31 @@ def get_coordinates(place_name, cache):
     if place_name in cache:
         return cache[place_name]
 
-    # geopy를 이용하여 지역 이름을 검색한다.
-    result = _geocode(place_name)
+    # 국내 행정구역 약칭을 정식 명칭으로 바꿔 지오코딩 성공률을 높인다.
+    # 입력 데이터를 덮어쓰지 않고 '검색어'만 변경한다.
+    abbreviations = {
+        "충남": "충청남도", "충북": "충청북도", "경남": "경상남도",
+        "경북": "경상북도", "전남": "전라남도", "전북": "전북특별자치도",
+        "강원": "강원특별자치도", "경기": "경기도",
+    }
+    query = place_name
+    for short, official in abbreviations.items():
+        if query == short or query.startswith(short + " "):
+            query = official + query[len(short):]
+            break
+
+    # Nominatim에서 동명이인 지명 때문에 해외 좌표를 돌려주지 않도록
+    # 대한민국으로 검색 범위를 제한한다.
+    try:
+        if KOREA_ONLY:
+            result = _geocode(query + ", 대한민국", country_codes="kr")
+        else:
+            result = _geocode(query)
+    except Exception as exc:
+        # 네트워크/서비스 예외가 한 건에서 발생해도 전체 기사는 유지한다.
+        print(f"지오코딩 오류({place_name}): {type(exc).__name__}: {exc}")
+        cache[place_name] = None
+        return None
 
     # 검색에 실패했다면 해당 뉴스의 위치를 알 수 없다.
     if result is None:
@@ -252,10 +297,12 @@ def get_coordinates(place_name, cache):
         return None
 
     # 검색 결과에서 위도와 경도를 추출한다.
-    latitude = result.latitude
-    longitude = result.longitude
-
-    coordinates = [latitude, longitude]
+    # 검색 서버 응답에도 유효성 검사를 수행한다.
+    coordinates = parse_coordinates(result.latitude, result.longitude)
+    if coordinates is None:
+        print(f"잘못된 지오코딩 좌표 제외: {place_name}")
+        cache[place_name] = None
+        return None
 
     # 검색 결과를 캐시에 저장한다.
     cache[place_name] = coordinates
@@ -267,7 +314,7 @@ def get_coordinates(place_name, cache):
 # 함수 5. 프론트엔드 전달용 뉴스 데이터 생성 [신규]
 # ============================================================
 
-def prepare_news_for_frontend(news_list):
+def prepare_news_for_frontend(news_list, *, geocode_missing=True):
     """백엔드의 뉴스 목록에 위도/경도를 붙여 프론트엔드로 전달한다.
 
     입력: 크롤링과 Gemini 분석 결과가 합쳐진 뉴스 목록
@@ -312,7 +359,7 @@ def prepare_news_for_frontend(news_list):
         )
 
         # 좌표가 없는 경우에만 발생 지역을 geopy로 검색한다.
-        if coordinates is None:
+        if coordinates is None and geocode_missing:
             coordinates = get_coordinates(
                 news_data.get("location"), cache
             )
@@ -359,7 +406,7 @@ def create_base_map():
 # ============================================================
 
 
-def add_news_marker(news_map, news, cache, category_layers):
+def add_news_marker(news_map, news, cache, category_layers, *, geocode_missing=True):
     """
     Gemini API가 분석한 뉴스 정보를 지도에 표시한다.
 
@@ -397,15 +444,17 @@ def add_news_marker(news_map, news, cache, category_layers):
     # 2. 뉴스 발생 지역의 좌표 검색
     # ========================================================
 
-    # 지역이 비어 있더라도 유효한 위도/경도가 있으면 표시한다.
-    # 백엔드가 미리 좌표를 채워서 전달한 경우에는
-    # geopy를 다시 호출하지 않고 그 좌표를 사용한다.
+    # 프론트엔드가 지도에 핀을 찍는 것과 동일하게
+    # latitude, longitude가 유효한 경우에만 마커를 생성한다.
+    # HTML 지도 미리보기에서도 데이터가 없는 위치를 임의로 검색하지 않는다.
     coordinates = parse_coordinates(
         news.get("latitude"), news.get("longitude")
     )
 
-    # 좌표가 전혀 없을 때만 기존 geopy 검색을 수행한다.
-    if coordinates is None:
+    # 기존 Folium 사용처는 기본값(True)으로 검색할 수 있다.
+    # Issue #10 검증 모드에서는 False로 설정해 프론트엔드와 같은
+    # 입력 좌표만 사용하므로 핀 개수가 정확히 일치한다.
+    if coordinates is None and geocode_missing:
         coordinates = get_coordinates(place, cache)
 
     # 좌표를 얻지 못한 경우에만 마커 생성을 생략한다.
@@ -495,7 +544,7 @@ def add_news_marker(news_map, news, cache, category_layers):
 # 함수 8. 전체 뉴스 지도 생성 (기존 HTML 지도용)
 # ============================================================
 
-def create_news_map(news_list, output_file=MAP_FILE):
+def create_news_map(news_list, output_file=MAP_FILE, *, geocode_missing=True):
     """
     백엔드에서 전달받은 뉴스 목록을 지도에 표시한다.
 
@@ -538,7 +587,8 @@ def create_news_map(news_list, output_file=MAP_FILE):
             news_map,
             news_dict,
             cache,
-            category_layers
+            category_layers,
+            geocode_missing=geocode_missing
         )
 
         # 성공적으로 추가된 마커만 좌표 목록에 저장한다.
@@ -601,8 +651,34 @@ def create_news_map(news_list, output_file=MAP_FILE):
         f"{len(news_list) - len(marker_positions)}건"
     )
 
+    # 지도에 실제로 등록된 마커 수를 검증에 활용한다.
+    # 새 속성은 HTML 지도 기능과 무관한 검사 전용 정보다.
+    news_map.mapnews_marker_count = count_folium_markers(news_map)
+
     # 다른 코드에서 지도 객체를 사용할 수 있도록 반환한다.
     return news_map
+
+
+# ============================================================
+# 함수 9. 프론트엔드 좌표 검사와 실제 Folium 마커 개수
+# ============================================================
+
+def count_valid_coordinate_news(news_list):
+    """프론트엔드가 핀을 표시할 수 있는 기사 수를 반환한다."""
+    return sum(
+        parse_coordinates(news.get("latitude"), news.get("longitude")) is not None
+        for news in news_list
+    )
+
+
+def count_folium_markers(element):
+    """Folium 지도와 하위 카테고리 그룹에 등록된 실제 Marker 수를 센다."""
+    total = 0
+    for child in element._children.values():
+        if isinstance(child, folium.Marker):
+            total += 1
+        total += count_folium_markers(child)
+    return total
 
 
 # ============================================================
@@ -615,4 +691,4 @@ if __name__ == "__main__":
     # 프론트엔드 연동에서는 이 함수 대신
     # prepare_news_for_frontend(news_list)를 호출한다.
     # 예시 뉴스 데이터는 코드에 넣지 않는다.
-    create_news_map([])
+    prepare_news_for_frontend(news_list)
