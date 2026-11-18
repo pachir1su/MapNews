@@ -682,13 +682,37 @@ def count_folium_markers(element):
 
 
 # ============================================================
-# 프로그램 실행
+# 프로그램 실행 (뉴스 결과 JSON -> 좌표 변환 후 JSON 저장)
 # ============================================================
 
 if __name__ == "__main__":
+    import sys
 
-    # 이 파일을 직접 실행하면 현재처럼 빈 지도가 생성된다.
-    # 프론트엔드 연동에서는 이 함수 대신
-    # prepare_news_for_frontend(news_list)를 호출한다.
-    # 예시 뉴스 데이터는 코드에 넣지 않는다.
-    prepare_news_for_frontend(news_list)
+    # 사용법: python map_visualization/map_visualization.py [입력파일] [출력파일]
+    # 아무것도 적지 않으면 data_ai/results_sample.json을 읽어
+    # map_visualization/map_results.json으로 저장한다.
+    input_path = (
+        Path(sys.argv[1]) if len(sys.argv) > 1
+        else BASE_DIR.parent / "data_ai" / "results_sample.json"
+    )
+    output_path = (
+        Path(sys.argv[2]) if len(sys.argv) > 2
+        else BASE_DIR / "map_results.json"
+    )
+
+    if not input_path.exists():
+        print(f"입력 파일을 찾을 수 없습니다: {input_path}")
+    else:
+        with input_path.open("r", encoding="utf-8") as file:
+            news_list = json.load(file)
+
+        print(f"총 {len(news_list)}건의 뉴스를 불러왔습니다. 좌표 변환을 시작합니다...")
+
+        # 지역명을 위도/경도로 변환
+        frontend_news = prepare_news_for_frontend(news_list)
+
+        # 최종 JSON 파일 저장
+        with output_path.open("w", encoding="utf-8") as file:
+            json.dump(frontend_news, file, ensure_ascii=False, indent=2)
+
+        print(f"완료! 좌표가 추가된 파일이 저장되었습니다: {output_path}")
