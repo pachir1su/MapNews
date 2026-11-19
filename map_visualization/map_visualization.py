@@ -720,7 +720,6 @@ def count_folium_markers(element):
 if __name__ == "__main__":
     import sys
 
-<<<<<<< Updated upstream
     # 사용법: python map_visualization/map_visualization.py [입력파일] [출력파일]
     # 아무것도 적지 않으면 data_ai/results_sample.json을 읽어
     # map_visualization/map_results.json으로 저장한다.
@@ -732,9 +731,6 @@ if __name__ == "__main__":
         Path(sys.argv[2]) if len(sys.argv) > 2
         else BASE_DIR / "map_results.json"
     )
-
-    if input_path.resolve() == output_path.resolve():
-        raise SystemExit("지도 입력 파일과 출력 파일은 서로 달라야 합니다.")
 
     if not input_path.exists():
         print(f"입력 파일을 찾을 수 없습니다: {input_path}")
@@ -748,98 +744,7 @@ if __name__ == "__main__":
         frontend_news = prepare_news_for_frontend(news_list)
 
         # 최종 JSON 파일 저장
-        if not frontend_news:
-            raise ValueError("유효한 뉴스 0건: 이전 지도 결과 보존")
-        atomic_write_json(output_path, frontend_news)
+        with output_path.open("w", encoding="utf-8") as file:
+            json.dump(frontend_news, file, ensure_ascii=False, indent=2)
 
         print(f"완료! 좌표가 추가된 파일이 저장되었습니다: {output_path}")
-=======
-    # MapNews 프로젝트 최상위 폴더 찾기
-    ROOT_DIR = BASE_DIR.parent.parent
-
-    # AI가 분석한 뉴스 데이터 파일 위치
-    input_file = ROOT_DIR / "data_ai" / "results.json"
-
-    # results.json 파일이 있는지 확인
-    if not input_file.exists():
-        raise FileNotFoundError(
-            f"뉴스 데이터 파일이 없습니다: {input_file}"
-        )
-
-    # JSON 파일 읽기
-    with input_file.open("r", encoding="utf-8-sig") as file:
-        data = json.load(file)
-
-    # JSON이 리스트이면 그대로 사용
-    if isinstance(data, list):
-        news_list = data
-
-    # JSON이 딕셔너리이면 내부 뉴스 목록 확인
-    elif isinstance(data, dict):
-        news_list = None
-
-        for key in ("news", "articles", "results", "data", "items"):
-            if isinstance(data.get(key), list):
-                news_list = data[key]
-                break
-
-    else:
-        news_list = None
-
-    # 뉴스 목록을 찾지 못했다면 오류 출력
-    if not isinstance(news_list, list):
-        raise ValueError("results.json에서 뉴스 목록을 찾지 못했습니다.")
-
-    # 원본 데이터의 기사 수 확인
-    print(f"원본 뉴스 수: {len(news_list)}건")
-
-    # --skip-geocode 옵션이 있으면 새로운 좌표 검색을 하지 않음
-    use_geocode = "--skip-geocode" not in sys.argv
-
-    # 뉴스 데이터에 위도와 경도 추가
-    frontend_news = prepare_news_for_frontend(
-        news_list,
-        geocode_missing=use_geocode
-    )
-
-    # 프론트엔드에 전달할 JSON 파일 생성
-    output_file = (
-        ROOT_DIR / "data_ai" / "frontend_news_with_coordinates.json"
-    )
-
-    with output_file.open("w", encoding="utf-8") as file:
-        json.dump(
-            frontend_news,
-            file,
-            ensure_ascii=False,
-            indent=2
-        )
-
-    # 좌표가 포함된 뉴스로 Folium 지도 생성
-    # 좌표 변환을 이미 했으므로 다시 검색하지 않음
-    news_map = create_news_map(
-        frontend_news,
-        output_file=ROOT_DIR / "mapnews_issue10_preview.html",
-        geocode_missing=False
-    )
-
-    # 유효한 좌표를 가진 기사 수 계산
-    valid_count = count_valid_coordinate_news(frontend_news)
-
-    # 실제 지도에 생성된 마커 수 계산
-    marker_count = count_folium_markers(news_map)
-
-    # 결과 출력
-    print(f"전체 기사 수: {len(frontend_news)}")
-    print(f"유효한 좌표 기사 수: {valid_count}")
-    print(f"실제 지도 마커 수: {marker_count}")
-    print(f"좌표 포함 JSON: {output_file}")
-
-    # 기사 목록이 유지되는지 확인
-    assert len(news_list) == len(frontend_news), "기사 목록 개수 불일치"
-
-    # 좌표 기사 수와 실제 마커 수 비교
-    assert valid_count == marker_count, "지도 마커 수 불일치"
-
-    print("Issue #10 지도 좌표 검증 완료")
->>>>>>> Stashed changes
