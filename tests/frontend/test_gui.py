@@ -88,10 +88,33 @@ def test_failure_retains_existing_data(window, qtbot):
             raise ConnectionError('do-not-display-secret')
     window.provider = Broken()
     window.reload()
-    qtbot.waitUntil(lambda: not window.worker.isRunning())
-    qtbot.waitUntil(lambda: '불러오지 못했어요' in window.banner.text())
+
+    # 작업 스레드 종료 대기
+    qtbot.waitUntil(
+        lambda: not window.worker.isRunning(),
+        timeout=5000
+    )
+
+    # 오류 메시지가 GUI에 표시될 때까지 대기
+    qtbot.waitUntil(
+        lambda: '불러오지 못했어요' in window.banner.text(),
+        timeout=5000
+    )
+
+    # 작업 완료 신호가 처리되어 새로고침 버튼이
+    # 다시 활성화될 때까지 대기
+    qtbot.waitUntil(
+        lambda: window.refresh_button.isEnabled(),
+        timeout=5000
+    )
+
+    # 오류가 발생해도 기존 뉴스 데이터는 유지되어야 함
     assert window.model.rowCount() == 20
+
+    # 내부 오류 메시지가 사용자에게 노출되면 안 됨
     assert 'do-not-display-secret' not in window.banner.text()
+
+    # 새로고침 버튼이 다시 활성화되어야 함
     assert window.refresh_button.isEnabled()
 
 
