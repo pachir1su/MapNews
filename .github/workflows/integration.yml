@@ -61,6 +61,9 @@ jobs:
         if: runner.os == 'Linux'
         continue-on-error: true
         run: python search.py --output test-artifacts/rss-live.json
+      - name: Capture latest 339-story integrated Qt map
+        if: runner.os == 'Linux'
+        run: python -m frontend.tools.capture_real --input test-artifacts/integration-map.json --output test-artifacts/latest-real-screenshots
       - name: Audit every stored location without network
         run: python tools/audit_location_coverage.py --input news_results.json --cache map_visualization/.geocode_cache.json --output test-artifacts/location-audit
       - uses: actions/upload-artifact@v4
