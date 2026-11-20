@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import subprocess
+import tempfile
 import sys
 from pathlib import Path
 
@@ -33,10 +34,23 @@ def apply_optional_ai(baseline, input_path, ai_path, limit):
         print("GEMINI_API_KEY 없음: Gemini 호출 없이 규칙 기반 분석을 사용합니다.")
         return baseline
     env = dict(os.environ, MAPNEWS_MAX_AI_ARTICLES=str(limit))
-    completed = subprocess.run(
-        [sys.executable, "data_ai/analyze_news.py", str(input_path), str(ai_path)],
-        env=env, check=False,
-    )
+    normalized = load_archive(input_path)
+    if not normalized:
+        return baseline
+    # Legacy numeric IDs must be replaced with canonical URL IDs before Gemini.
+    # Keep the full original article body, not the shortened rule summary.
+    with tempfile.TemporaryDirectory(prefix="mapnews-ai-input-") as directory:
+        canonical_input = Path(directory) / "articles.json"
+        canonical_input.write_text(
+            json.dumps(normalized, ensure_ascii=False, allow_nan=False),
+            encoding="utf-8",
+        )
+        completed = subprocess.run(
+            [sys.executable, str(Path(__file__).resolve().parent /
+                                   "data_ai" / "analyze_news.py"),
+             str(canonical_input), str(ai_path)],
+            env=env, check=False,
+        )
     if completed.returncode:
         print("Gemini 일부/전체 실패: 규칙 기반 결과를 유지하고 다음 실행에서 재시도할 수 있습니다.")
     ai_items = {}
@@ -73,18 +87,61 @@ def retain_prior_coordinates(rows, prior_map):
         lat = coordinate(old.get("latitude"), 90)
         lon = coordinate(old.get("longitude"), 180)
         if lat is not None and lon is not None:
-            lookup[(old.get("url"), old.get("title"))] = (lat, lon)
+            lookup[(old.get("url"), old.get("title"))] = (
+                lat, lon, str(old.get("location") or "").strip()
+            )
     merged = []
     for raw in rows:
         row = dict(raw)
         old_coordinate = lookup.get((row.get("url"), row.get("title")))
-        if old_coordinate and row.get("source") == "real":
-            row["latitude"], row["longitude"] = old_coordinate
-            row["coordinate_note"] = (
-                "이전 지도 데이터의 지역 대표 좌표 재사용. 실제 발생 주소는 확인되지 않았습니다."
+        region = str(row.get("location") or "").strip()
+        if old_coordinate and row.get("source") == "real" and region:
+            lat, lon, prior_region = old_coordinate
+            same_region = (
+                not prior_region
+                or region == prior_region
+                or region.startswith(prior_region + " ")
+                or prior_region.startswith(region + " ")
             )
+            if same_region:
+                row["latitude"], row["longitude"] = lat, lon
+                row["coordinate_source"] = "previous_map"
+                row["coordinate_precision"] = "region"
+                row["coordinate_note"] = (
+                    "이전 지도 데이터의 지역 대표 좌표 재사용. "
+                    "실제 발생 주소는 확인되지 않았습니다."
+                )
         merged.append(row)
     return merged
+
+
+def attach_cached_regional_coordinates(rows):
+    """Read already-known regional centres without network geocoding.
+
+    Compatible with both main's mapper and PR #16's offline cache behaviour.
+    """
+    from map_visualization import map_visualization as maps
+    cache = maps.load_coordinate_cache()
+    output = []
+    for raw in rows:
+        row = dict(raw)
+        region = str(row.get("location") or "").strip()
+        if (region and row.get("latitude") is None
+                and row.get("longitude") is None):
+            candidate = cache.get(region)
+            if isinstance(candidate, (list, tuple)) and len(candidate) == 2:
+                coords = maps.parse_coordinates(candidate[0], candidate[1])
+                if coords is not None:
+                    row["latitude"], row["longitude"] = coords
+                    row["coordinate_source"] = "region_cache"
+                    row["coordinate_precision"] = "region"
+                    row["coordinate_note"] = (
+                        "지역명과 일치하는 행정구역 대표 좌표입니다. "
+                        "실제 사건 발생 위치가 아닐 수 있습니다."
+                    )
+        output.append(row)
+    return output
+
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="MapNews 전체 데이터 파이프라인")
@@ -127,6 +184,7 @@ def main(argv=None):
     from map_visualization.map_visualization import prepare_news_for_frontend, atomic_write_json
     previous_map = load_optional(args.map_output)
     baseline_for_map = retain_prior_coordinates(baseline, previous_map)
+    baseline_for_map = attach_cached_regional_coordinates(baseline_for_map)
     mapped = prepare_news_for_frontend(baseline_for_map, geocode_missing=args.geocode)
     if not mapped:
         raise ValueError("유효한 뉴스가 없어 기존 지도 결과를 보존합니다.")

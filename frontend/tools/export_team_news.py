@@ -70,17 +70,28 @@ def export_news(input_file: Path, output_file: Path, prepare, *,
     if require_pins and not count:
         raise ValueError("좌표가 있는 기사가 0건입니다. 결과를 덮어쓰지 않습니다.")
 
-    output = [{
-        "id": item.id,
-        "title": item.title,
-        "category": item.category,
-        "location": item.location,
-        "summary": item.summary,
-        "url": item.url,
-        "datetime": item.published_at.isoformat() if item.published_at else None,
-        "latitude": item.latitude,
-        "longitude": item.longitude,
-    } for item in batch.items]
+    original_by_id = {
+        str(row.get("id")): row for row in prepared
+        if isinstance(row, dict) and row.get("id") is not None
+    }
+    output = []
+    for item in batch.items:
+        original = original_by_id.get(item.id, {})
+        output.append({
+            "id": item.id, "title": item.title, "category": item.category,
+            "location": item.location, "summary": item.summary,
+            "url": item.url,
+            "datetime": item.published_at.isoformat() if item.published_at else None,
+            "latitude": item.latitude, "longitude": item.longitude,
+            "source": "demo" if item.is_mock else item.source,
+            "publisher": original.get("publisher"),
+            "content_hash": original.get("content_hash"),
+            "analysis_status": original.get("analysis_status"),
+            "location_source": original.get("location_source"),
+            "coordinate_source": original.get("coordinate_source"),
+            "coordinate_precision": original.get("coordinate_precision"),
+            "coordinate_note": item.coordinate_note or original.get("coordinate_note"),
+        })
 
     output_file.parent.mkdir(parents=True, exist_ok=True)
     tmp_name = None

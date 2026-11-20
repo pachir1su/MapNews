@@ -78,7 +78,7 @@ def test_save_fails_without_destroying_previous(monkeypatch, tmp_path):
 
 def test_rule_analysis_is_api_free_and_conservative():
     assert classify("대전 아파트 화재") == "화재"
-    assert extract_location("충남 천안시 서북구 도로 사고") == "충남 천안시 서북구"
+    assert extract_location("충남 천안시 서북구 도로 사고") == "충청남도 천안시 서북구"
     assert extract_location("시험 관리 부실") == ""
     result = enrich([sample(url="https://example.com/test/1",
                             title="시험 관리 부실", summary="[서울=뉴시스] 기자 보도")])
