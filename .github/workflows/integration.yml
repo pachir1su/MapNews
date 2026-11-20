@@ -61,6 +61,8 @@ jobs:
         if: runner.os == 'Linux'
         continue-on-error: true
         run: python search.py --output test-artifacts/rss-live.json
+      - name: Audit every stored location without network
+        run: python tools/audit_location_coverage.py --input news_results.json --cache map_visualization/.geocode_cache.json --output test-artifacts/location-audit
       - uses: actions/upload-artifact@v4
         if: always()
         with:
