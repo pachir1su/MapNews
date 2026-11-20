@@ -9,7 +9,8 @@
 # 1. 필요한 라이브러리 가져오기
 # ============================================================
 
-
+import shutil
+from datetime import datetime
 import json  # 지역-좌표 검색 결과를 JSON 파일에 저장
 import math  # 위도/경도의 숫자 유효성 검사
 import argparse  # 실행 시 입력파일, 출력파일, 옵션을 처리
@@ -200,7 +201,7 @@ def atomic_write_json(path, data):
 atomic_save_json = atomic_write_json
 
 
-def protect_existing_news(path, news_list):
+def protect_existing_news(path, news_list, *, allow_shrink=False):
     """동일 URL 기사가 기존 유효 좌표를 잃는 경우 저장을 막는다."""
     path = Path(path)
     if not path.exists():
@@ -213,9 +214,10 @@ def protect_existing_news(path, news_list):
 
     if not isinstance(previous, list):
         raise ValueError("기존 뉴스 JSON 형식이 잘못되어 덮어쓰기를 중단합니다.")
-    if len(news_list) < len(previous):
+    if len(news_list) < len(previous) and not allow_shrink:
         raise ValueError(
-            f"기사 수가 {len(previous)}→{len(news_list)}로 감소하여 기존 JSON을 보존합니다."
+            f"기사 수가 {len(previous)}→{len(news_list)}로 감소했습니다. "
+            "교체하려면 --replace-dataset 옵션을 사용하세요."
         )
 
     previous_by_url = {
@@ -240,6 +242,37 @@ def protect_existing_news(path, news_list):
                 f"기존 정상 좌표가 사라지는 기사 발견 ({item.get('url')}), 저장 중단"
             )
 
+def backup_existing_json(path):
+    """기존 JSON을 별도 폴더에 백업한다."""
+
+    path = Path(path)
+
+    if not path.exists():
+        return None
+
+    backup_dir = path.parent / ".mapnews_backups"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+
+    backup_name = (
+        f"{path.name}."
+        f"{datetime.now():%Y%m%d_%H%M%S_%f}."
+        f"{os.getpid()}.bak"
+    )
+
+    backup_path = backup_dir / backup_name
+
+    try:
+        with path.open("rb") as original:
+            with backup_path.open("xb") as backup:
+                shutil.copyfileobj(original, backup)
+                backup.flush()
+                os.fsync(backup.fileno())
+
+    except BaseException:
+        backup_path.unlink(missing_ok=True)
+        raise
+
+    return backup_path
 
 def _coordinate_metadata(location, kind):
     if kind in ("nominatim", "region_cache"):
@@ -421,7 +454,7 @@ def prepare_news_for_frontend(news_list, *, geocode_missing=True):
         "id", "title", "category", "location", "summary",
         "url", "datetime", "source", "publisher",
         "coordinate_source", "coordinate_precision", "coordinate_note",
-        "analysis_status",
+        "analysis_status", "content_hash",
     )
 
     for index, news in enumerate(news_list):
@@ -431,8 +464,17 @@ def prepare_news_for_frontend(news_list, *, geocode_missing=True):
             raise ValueError(f"{index}번째 뉴스 데이터가 올바르지 않습니다.") from exc
 
         news_data = {field: record.get(field) for field in fields}
+        # 프론트엔드 규격에 맞춰 시연 기사를 demo로 통일
+        original_source = str(
+            record.get("source") or ""
+        ).lower()
+
         news_data["source"] = (
-            "sample" if is_sample_news(record.get("url"))
+            "demo"
+            if (
+                is_sample_news(record.get("url"))
+                or original_source in {"sample", "demo", "mock"}
+            )
             else (record.get("source") or "unknown")
         )
         news_data["publisher"] = record.get("publisher") or ""
@@ -600,8 +642,21 @@ def add_news_marker(news_map, news, cache, category_layers, *, geocode_missing=T
     safe_summary = escape(summary).replace("\n", "<br>")
 
     # 기사 출처와 좌표 정밀도도 팝업에 함께 표시한다.
-    source_kind = "sample" if is_sample_news(news.get("url")) else (news.get("source") or "unknown")
-    source_label = {"sample": "테스트 기사", "real": "수집 기사"}.get(source_kind, "출처 미확인")
+    original_source = str(news.get("source") or "").lower()
+
+    source_kind = (
+        "demo"
+        if (
+            is_sample_news(news.get("url"))
+            or original_source in {"sample", "demo", "mock"}
+        )
+        else original_source
+    )
+
+    source_label = {
+        "demo": "테스트 기사",
+        "real": "수집 기사",
+    }.get(source_kind, "출처 미확인")
     publisher = escape(str(news.get("publisher") or "미기재"))
     precision = escape(str(news.get("coordinate_precision") or "unknown"))
     note = escape(str(news.get("coordinate_note") or
@@ -857,6 +912,11 @@ def main(argv=None):
         action="store_true",
         help="새로운 좌표 검색 없이 기존 캐시만 사용"
     )
+    parser.add_argument(
+        "--replace-dataset",
+        action="store_true",
+        help="기존 JSON 백업 후 기사 수 감소를 허용"
+    )
 
     args = parser.parse_intermixed_args(argv)
 
@@ -940,9 +1000,18 @@ def main(argv=None):
         )
 
     # 기존 정상 기사와 좌표가 사라지는지 검사
-    protect_existing_news(output_path, frontend_news)
+    protect_existing_news(
+        output_path,
+        frontend_news,
+        allow_shrink=args.replace_dataset
+    )
 
-    # P0-3. 원자적 JSON 저장
+    # 데이터셋 교체를 요청했다면 기존 JSON 백업
+    if args.replace_dataset and output_path.exists():
+        backup_path = backup_existing_json(output_path)
+        print(f"기존 JSON 백업 완료: {backup_path}")
+
+    # 검증과 백업이 끝난 후 안전하게 저장
     atomic_write_json(output_path, frontend_news)
 
     # 결과 출력

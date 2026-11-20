@@ -305,8 +305,8 @@ def test_source_and_precision_survive_json_and_folium(
     )
 
     assert [row["source"] for row in stored] == [
-        "sample", "real"
-    ]
+    "demo", "real"
+]
 
     assert all(
         row["coordinate_precision"] == "region"
