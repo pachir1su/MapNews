@@ -78,7 +78,7 @@ def test_save_fails_without_destroying_previous(monkeypatch, tmp_path):
 
 def test_rule_analysis_is_api_free_and_conservative():
     assert classify("대전 아파트 화재") == "화재"
-    assert extract_location("충남 천안시 서북구 도로 사고") == "충남 천안시 서북구"
+    assert extract_location("충남 천안시 서북구 도로 사고") == "충청남도 천안시 서북구"
     assert extract_location("시험 관리 부실") == ""
     result = enrich([sample(url="https://example.com/test/1",
                             title="시험 관리 부실", summary="[서울=뉴시스] 기자 보도")])
@@ -111,7 +111,7 @@ def test_map_without_geocoder_keeps_unlocated_articles(monkeypatch, tmp_path):
     mapped = maps.prepare_news_for_frontend(rows, geocode_missing=False)
     assert len(mapped) == 1
     assert mapped[0]["latitude"] is None and mapped[0]["longitude"] is None
-    # example.org는 시연용 주소이므로 source="demo"로 분류한다.
+    # example.org is a reserved example URL and maps to demo on PR #16.
     assert mapped[0]["source"] == "demo"
 
 
