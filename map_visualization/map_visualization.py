@@ -9,10 +9,14 @@
 # 1. 필요한 라이브러리 가져오기
 # ============================================================
 
+import shutil
+from datetime import datetime
 import json  # 지역-좌표 검색 결과를 JSON 파일에 저장
 import math  # 위도/경도의 숫자 유효성 검사
+import argparse  # 실행 시 입력파일, 출력파일, 옵션을 처리
 import os    # Nominatim 사용자 식별 문자열 설정
-import tempfile
+import tempfile  # 저장 완료 후 기존 파일 교체용 임시 파일
+from urllib.parse import urlparse  # 테스트 기사 도메인 식별
 
 # 뉴스 제목 등에 들어 있는 HTML 특수문자를 안전하게 처리
 from html import escape
@@ -158,74 +162,161 @@ def parse_coordinates(latitude, longitude):
     return [lat, lon]
 
 
+def is_sample_news(url):
+    """잘못 source='real'로 표시된 예약 예시 도메인을 샘플로 구분한다."""
+    host = (urlparse(str(url or "")).hostname or "").lower()
+    return host in {
+        "example.com", "www.example.com", "example.org", "www.example.org",
+        "example.net", "www.example.net",
+    }
 
 
-def atomic_write_json(path, payload):
-    """Keep last valid cache/output on disk or process failure."""
+def atomic_write_json(path, data):
+    """임시 파일에 모두 쓴 뒤 기존 JSON을 원자적으로 교체한다.
+
+    빈 결과/직렬화 실패/쓰기 오류 시 원본 파일은 교체하지 않는다.
+    """
+    if not isinstance(data, (list, dict)) or not data:
+        raise ValueError("빈 JSON 결과는 기존 파일을 덮어쓸 수 없습니다.")
+
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = None
+    temporary_path = None
     try:
         with tempfile.NamedTemporaryFile(
-            mode="w", encoding="utf-8", dir=path.parent,
-            prefix=".mapnews-", suffix=".tmp", delete=False
-        ) as stream:
-            temporary = Path(stream.name)
-            json.dump(payload, stream, ensure_ascii=False, indent=2, allow_nan=False)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, path)
+            mode="w", encoding="utf-8", suffix=".tmp",
+            prefix=f".{path.name}.", dir=path.parent, delete=False,
+        ) as file:
+            temporary_path = Path(file.name)
+            json.dump(data, file, ensure_ascii=False, indent=2, allow_nan=False)
+            file.flush()
+            os.fsync(file.fileno())
+        os.replace(temporary_path, path)
+        temporary_path = None
     finally:
-        if temporary is not None and temporary.exists():
-            temporary.unlink()
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+
+# 이전 함수 이름을 사용하는 코드와의 호환성 유지
+atomic_save_json = atomic_write_json
+
+
+def protect_existing_news(path, news_list, *, allow_shrink=False):
+    """동일 URL 기사가 기존 유효 좌표를 잃는 경우 저장을 막는다."""
+    path = Path(path)
+    if not path.exists():
+        return
+    try:
+        with path.open("r", encoding="utf-8-sig") as file:
+            previous = json.load(file)
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError("기존 뉴스 JSON을 읽지 못해 덮어쓰기를 중단합니다.") from exc
+
+    if not isinstance(previous, list):
+        raise ValueError("기존 뉴스 JSON 형식이 잘못되어 덮어쓰기를 중단합니다.")
+    if len(news_list) < len(previous) and not allow_shrink:
+        raise ValueError(
+            f"기사 수가 {len(previous)}→{len(news_list)}로 감소했습니다. "
+            "교체하려면 --replace-dataset 옵션을 사용하세요."
+        )
+
+    previous_by_url = {
+        str(item["url"]): item for item in previous
+        if isinstance(item, dict) and item.get("url")
+    }
+    previous_by_id = {
+        str(item["id"]): item for item in previous
+        if isinstance(item, dict) and item.get("id") is not None
+    }
+    for item in news_list:
+        if not isinstance(item, dict):
+            raise ValueError("뉴스 JSON에 딕셔너리가 아닌 항목이 있습니다.")
+        old = (previous_by_url.get(str(item.get("url") or ""))
+               or previous_by_id.get(str(item.get("id"))))
+        if old is None:
+            continue
+        before = parse_coordinates(old.get("latitude"), old.get("longitude"))
+        after = parse_coordinates(item.get("latitude"), item.get("longitude"))
+        if before is not None and after is None:
+            raise ValueError(
+                f"기존 정상 좌표가 사라지는 기사 발견 ({item.get('url')}), 저장 중단"
+            )
+
+def backup_existing_json(path):
+    """기존 JSON을 별도 폴더에 백업한다."""
+
+    path = Path(path)
+
+    if not path.exists():
+        return None
+
+    backup_dir = path.parent / ".mapnews_backups"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+
+    backup_name = (
+        f"{path.name}."
+        f"{datetime.now():%Y%m%d_%H%M%S_%f}."
+        f"{os.getpid()}.bak"
+    )
+
+    backup_path = backup_dir / backup_name
+
+    try:
+        with path.open("rb") as original:
+            with backup_path.open("xb") as backup:
+                shutil.copyfileobj(original, backup)
+                backup.flush()
+                os.fsync(backup.fileno())
+
+    except BaseException:
+        backup_path.unlink(missing_ok=True)
+        raise
+
+    return backup_path
+
+def _coordinate_metadata(location, kind):
+    if kind in ("nominatim", "region_cache"):
+        return (
+            "region",
+            f"{location} 검색으로 얻은 지역 대표 좌표입니다. "
+            "실제 사건 발생 주소로 검증된 위치는 아닙니다.",
+        )
+    if kind == "none":
+        return "none", "유효한 좌표가 없어 지도에 표시하지 않습니다."
+    return (
+        "unknown",
+        "좌표가 제공되었지만 실제 사건 발생 주소로 검증되었는지 알 수 없습니다.",
+    )
+
 
 # ============================================================
 # 함수 2. 저장된 좌표 캐시 불러오기
 # ============================================================
 
 def load_coordinate_cache():
-    """
-    이전에 검색한 지역별 좌표를 JSON 파일에서 불러온다.
-
-    같은 지역을 매번 인터넷에서 다시 검색하는 것을
-    방지하기 위한 기능이다.
-    """
-
-    # 캐시 파일이 없으면 빈 딕셔너리를 반환한다.
+    """기존 캐시의 유효 좌표를 복구한다. 손상된 캐시는 덮어쓰지 않는다."""
     if not CACHE_FILE.exists():
         return {}
-
     try:
-        # JSON 파일을 읽기 모드로 연다.
         with CACHE_FILE.open("r", encoding="utf-8") as file:
             saved = json.load(file)
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError(
+            f"좌표 캐시가 손상되었습니다. 기존 파일을 유지합니다: {CACHE_FILE}"
+        ) from exc
 
-    except (OSError, json.JSONDecodeError):
-        print("좌표 캐시를 읽지 못해 새로 검색합니다.")
-        return {}
-
-    # 저장된 데이터가 딕셔너리가 아니면 사용하지 않는다.
     if not isinstance(saved, dict):
-        return {}
+        raise ValueError("좌표 캐시의 최상위 데이터가 딕셔너리가 아닙니다.")
 
     cache = {}
-
-    # 저장된 지역과 좌표를 하나씩 확인한다.
     for place, coords in saved.items():
-
-        # 지역명이 문자열이고 좌표가 2개인지 확인한다.
-        if (
-            isinstance(place, str)
-            and isinstance(coords, list)
-            and len(coords) == 2
-        ):
-
-            # 좌표의 유효성을 검사한다.
-            parsed = parse_coordinates(coords[0], coords[1])
-
-            if parsed is not None:
-                cache[place] = parsed
-
+        if not isinstance(place, str) or not place.strip():
+            continue
+        if not isinstance(coords, (list, tuple)) or len(coords) != 2:
+            continue
+        parsed = parse_coordinates(coords[0], coords[1])
+        if parsed is not None:
+            cache[place] = parsed
     return cache
 
 
@@ -234,25 +325,31 @@ def load_coordinate_cache():
 # ============================================================
 
 def save_coordinate_cache(cache):
-    """
-    검색한 좌표를 JSON 파일로 저장한다.
+    """기존 정상 캐시를 합치고 원자적으로 저장한다."""
+    if not isinstance(cache, dict):
+        raise ValueError("캐시 자료형이 올바르지 않습니다.")
 
-    프로그램을 다시 실행하더라도
-    이전에 검색한 지역의 좌표를 사용할 수 있다.
-    """
+    # 잘못된 캐시 파일은 load_coordinate_cache()에서 오류를 발생시킨다.
+    # 따라서 기존 파일을 덮어쓰지 않고 수정 후 재실행할 수 있다.
+    previous = load_coordinate_cache()
+    merged = dict(previous)
+    for place, coords in cache.items():
+        if not isinstance(place, str) or not place.strip():
+            continue
+        if not isinstance(coords, (list, tuple)) or len(coords) != 2:
+            continue
+        parsed = parse_coordinates(coords[0], coords[1])
+        if parsed is not None:
+            merged[place] = parsed
 
-    # 좌표 검색에 성공한 지역만 저장한다.
-    saved = {
-        name: coords
-        for name, coords in cache.items()
-        if coords is not None
-    }
-
-    # 캐시는 성능 개선용이다. 저장에 실패해도 뉴스 목록은 유지한다.
+    if not merged:
+        print("좌표 캐시 저장 생략: 저장할 정상 좌표가 없습니다.")
+        return
     try:
-        atomic_write_json(CACHE_FILE, saved)
+        atomic_write_json(CACHE_FILE, merged)
     except OSError as exc:
-        print(f"좌표 캐시 저장 실패(뉴스 처리는 계속 진행): {exc}")
+        # 임시 저장이 실패해도 기존 캐시 파일은 유지된다.
+        print(f"좌표 캐시 저장 실패(기존 파일 보존): {exc}")
 
 
 # ============================================================
@@ -280,7 +377,15 @@ def get_coordinates(place_name, cache):
     # 캐시에 이미 존재하는 지역이라면
     # 인터넷 검색 없이 저장된 좌표를 사용한다.
     if place_name in cache:
-        return cache[place_name]
+        cached = cache[place_name]
+        if isinstance(cached, (list, tuple)) and len(cached) == 2:
+            return parse_coordinates(cached[0], cached[1])
+        return None
+
+    # --skip-geocode / MAPNEWS_OFFLINE=1 환경에서는 네트워크를 호출하지 않는다.
+    if os.getenv("MAPNEWS_OFFLINE") == "1":
+        print(f"오프라인 모드: 캐시 없는 지역 조회 생략 ({place_name})")
+        return None
 
     # 국내 행정구역 약칭을 정식 명칭으로 바꿔 지오코딩 성공률을 높인다.
     # 입력 데이터를 덮어쓰지 않고 '검색어'만 변경한다.
@@ -336,75 +441,103 @@ def get_coordinates(place_name, cache):
 # ============================================================
 
 def prepare_news_for_frontend(news_list, *, geocode_missing=True):
-    """백엔드의 뉴스 목록에 위도/경도를 붙여 프론트엔드로 전달한다.
+    """기사 수를 유지하며 좌표·출처·정확도 메타데이터를 전달한다.
 
-    입력: 크롤링과 Gemini 분석 결과가 합쳐진 뉴스 목록
-        - 크롤링/DB 담당: id, title, url, datetime
-        - Gemini 담당: category, location, summary
-
-    출력: 다음 9개 키를 가진 딕셔너리의 리스트
-        id, title, category, location, summary, url, datetime,
-        latitude, longitude
-
-    좌표를 찾지 못해도 기사 자체는 제거하지 않는다.
-    대신 latitude와 longitude를 모두 None으로 반환한다.
+    기존 9개 필드를 그대로 유지하고 5개 메타데이터 필드를 추가한다.
+    미좌표 기사는 latitude/longitude=None으로 남겨 임의 핀을 만들지 않는다.
     """
-
-    # 이전 실행에서 검색한 지역 좌표를 가져온다.
+    if not isinstance(news_list, list):
+        raise ValueError("뉴스 목록은 리스트여야 합니다.")
     cache = load_coordinate_cache()
     frontend_news_list = []
-
-    # 프론트엔드가 기대하는 필드 이름을 고정한다.
     fields = (
         "id", "title", "category", "location", "summary",
-        "url", "datetime", "source", "publisher", "content_hash",
-        "analysis_status", "coordinate_note"
+        "url", "datetime", "source", "publisher",
+        "coordinate_source", "coordinate_precision", "coordinate_note",
+        "analysis_status", "content_hash",
     )
 
-    for news in news_list:
-        # sqlite3.Row와 일반 딕셔너리를 모두 처리한다.
+    for index, news in enumerate(news_list):
         try:
-            source = dict(news)
-        except (TypeError, ValueError):
-            print("올바르지 않은 뉴스 데이터를 건너뜁니다.")
-            continue
+            record = dict(news)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{index}번째 뉴스 데이터가 올바르지 않습니다.") from exc
 
-        # 프론트엔드에 필요한 7개 기사 정보를 그대로 복사한다.
-        # 누락된 필드는 None이 된다. 존재하지 않는 제목이나 ID를
-        # 지도 모듈에서 임의로 만드는 것은 피한다.
-        news_data = {field: source.get(field) for field in fields}
+        news_data = {field: record.get(field) for field in fields}
+        # 프론트엔드 규격에 맞춰 시연 기사를 demo로 통일
+        original_source = str(
+            record.get("source") or ""
+        ).lower()
 
-        # 기존 DB에 유효한 좌표가 있으면 우선 사용한다.
-        coordinates = parse_coordinates(
-            source.get("latitude"),
-            source.get("longitude")
-        )
-
-        # 좌표가 없는 경우에만 발생 지역을 geopy로 검색한다.
-        if coordinates is None and geocode_missing:
-            coordinates = get_coordinates(
-                news_data.get("location"), cache
+        news_data["source"] = (
+            "demo"
+            if (
+                is_sample_news(record.get("url"))
+                or original_source in {"sample", "demo", "mock"}
             )
+            else (record.get("source") or "unknown")
+        )
+        news_data["publisher"] = record.get("publisher") or ""
+
+        coordinates = parse_coordinates(
+            record.get("latitude"), record.get("longitude")
+        )
+        location = str(record.get("location") or "").strip()
+        coordinate_kind = "none"
+        newly_geocoded = False
+
+        if coordinates is not None:
+            coordinate_kind = record.get("coordinate_source") or "upstream"
+        elif location:
+            # 기존 좌표 캐시 확인
+            cached = cache.get(location)
+
+            if isinstance(cached, (list, tuple)) and len(cached) == 2:
+                coordinates = parse_coordinates(cached[0], cached[1])
+
+                if coordinates is not None:
+                    coordinate_kind = "region_cache"
+                    newly_geocoded = True
+
+            # 캐시에 좌표가 없을 때만 새로운 인터넷 검색
+            if (
+                coordinates is None
+                and geocode_missing
+                and os.getenv("MAPNEWS_OFFLINE") != "1"
+            ):
+                coordinates = get_coordinates(location, cache)
+
+                if coordinates is not None:
+                    coordinate_kind = "nominatim"
+                    newly_geocoded = True
+
 
         if coordinates is None:
-            # 좌표 검색 실패: 기사 목록/상세 화면은 유지하고
-            # 프론트엔드는 지도 마커만 생성하지 않도록 한다.
             news_data["latitude"] = None
             news_data["longitude"] = None
+            news_data["coordinate_source"] = "none"
+            news_data["coordinate_precision"] = "none"
+            news_data["coordinate_note"] = _coordinate_metadata(location, "none")[1]
         else:
-            news_data["latitude"] = coordinates[0]
-            news_data["longitude"] = coordinates[1]
-            if not news_data.get("coordinate_note"):
+            news_data["latitude"], news_data["longitude"] = coordinates
+            precision, note = _coordinate_metadata(location, coordinate_kind)
+            news_data["coordinate_source"] = coordinate_kind
+            # 원본에 명시된 정밀도/설명은 기존 입력 좌표에 대해서만 존중한다.
+            # 새 지오코딩 결과는 무조건 대표 좌표임을 표시한다.
+            if newly_geocoded:
+                news_data["coordinate_precision"] = precision
+                news_data["coordinate_note"] = note
+            else:
+                news_data["coordinate_precision"] = (
+                    record.get("coordinate_precision") or precision
+                )
                 news_data["coordinate_note"] = (
-                    "행정구역 대표 좌표일 수 있으며 실제 사건 지점은 검증되지 않았습니다."
+                    record.get("coordinate_note") or note
                 )
 
         frontend_news_list.append(news_data)
 
-    # 다음 실행에서 같은 지역을 재검색하지 않도록 저장한다.
     save_coordinate_cache(cache)
-
-    # 백엔드가 이 값을 프론트엔드로 전달해야 한다.
     return frontend_news_list
 
 
@@ -482,6 +615,13 @@ def add_news_marker(news_map, news, cache, category_layers, *, geocode_missing=T
     # 입력 좌표만 사용하므로 핀 개수가 정확히 일치한다.
     if coordinates is None and geocode_missing:
         coordinates = get_coordinates(place, cache)
+        if coordinates is not None:
+            # 기존 프론트 필드 없이 HTML 지도를 직접 생성하는 경우에도
+            # 조회된 위치를 사건의 정확한 주소로 표시하지 않는다.
+            news = dict(news)
+            news["coordinate_source"] = "nominatim_or_region_cache"
+            news["coordinate_precision"] = "region"
+            news["coordinate_note"] = _coordinate_metadata(place, "nominatim")[1]
 
     # 좌표를 얻지 못한 경우에만 마커 생성을 생략한다.
     if coordinates is None:
@@ -501,16 +641,35 @@ def add_news_marker(news_map, news, cache, category_layers, *, geocode_missing=T
     # HTML에서도 줄바꿈이 보이도록 변환한다.
     safe_summary = escape(summary).replace("\n", "<br>")
 
+    # 기사 출처와 좌표 정밀도도 팝업에 함께 표시한다.
+    original_source = str(news.get("source") or "").lower()
+
+    source_kind = (
+        "demo"
+        if (
+            is_sample_news(news.get("url"))
+            or original_source in {"sample", "demo", "mock"}
+        )
+        else original_source
+    )
+
+    source_label = {
+        "demo": "테스트 기사",
+        "real": "수집 기사",
+    }.get(source_kind, "출처 미확인")
+    publisher = escape(str(news.get("publisher") or "미기재"))
+    precision = escape(str(news.get("coordinate_precision") or "unknown"))
+    note = escape(str(news.get("coordinate_note") or
+                      "실제 사건 발생 주소로 검증되지 않은 좌표입니다."))
+
     # 마커를 클릭하면 나타나는 정보창의 내용이다.
     popup_html = (
-        f"<b>뉴스 발생 지역</b><br>"
-        f"{safe_place}<br><br>"
-
-        f"<b>카테고리</b><br>"
-        f"{safe_category}<br><br>"
-
-        f"<b>뉴스 요약</b><br>"
-        f"{safe_summary}"
+        f"<b>뉴스 발생 지역</b><br>{safe_place}<br><br>"
+        f"<b>카테고리</b><br>{safe_category}<br><br>"
+        f"<b>출처</b><br>{escape(source_label)} / {publisher}<br><br>"
+        f"<b>좌표 정확도</b><br>{precision}<br>"
+        f"<b>위치 안내</b><br>{note}<br><br>"
+        f"<b>뉴스 요약</b><br>{safe_summary}"
     )
 
     # ========================================================
@@ -662,8 +821,19 @@ def create_news_map(news_list, output_file=MAP_FILE, *, geocode_missing=True):
         exist_ok=True
     )
 
-    # 완성된 지도를 HTML 파일로 저장한다.
-    news_map.save(str(output_file))
+    # HTML 역시 임시 파일로 완성한 뒤 교체한다.
+    temp_html = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            suffix=".html", dir=output_file.parent, delete=False
+        ) as handle:
+            temp_html = Path(handle.name)
+        news_map.save(str(temp_html))
+        os.replace(temp_html, output_file)
+        temp_html = None
+    finally:
+        if temp_html is not None:
+            temp_html.unlink(missing_ok=True)
 
     # 실행 결과 출력
     print(f"지도 생성 완료: {output_file}")
@@ -708,41 +878,156 @@ def count_folium_markers(element):
 
 
 # ============================================================
-# 프로그램 실행 (뉴스 결과 JSON -> 좌표 변환 후 JSON 저장)
+# 프로그램 실행: 안전 저장 및 Issue #10 검증
 # ============================================================
 
-if __name__ == "__main__":
-    import sys
+def main(argv=None):
+    """뉴스 JSON에 좌표를 추가하고 안전하게 저장한다."""
 
-    # 사용법: python map_visualization/map_visualization.py [입력파일] [출력파일]
-    # 아무것도 적지 않으면 data_ai/results_sample.json을 읽어
-    # map_visualization/map_results.json으로 저장한다.
-    input_path = (
-        Path(sys.argv[1]) if len(sys.argv) > 1
-        else BASE_DIR.parent / "data_ai" / "results_sample.json"
-    )
-    output_path = (
-        Path(sys.argv[2]) if len(sys.argv) > 2
-        else BASE_DIR / "map_results.json"
+    root_dir = BASE_DIR.parent
+
+    parser = argparse.ArgumentParser(
+        description="MapNews 지도 뉴스 좌표 JSON 생성"
     )
 
+    # 입력 파일 경로
+    parser.add_argument(
+        "input_path",
+        nargs="?",
+        default=str(root_dir / "data_ai" / "results_sample.json"),
+        help="뉴스 입력 JSON 경로"
+    )
+
+    # 출력 파일 경로
+    parser.add_argument(
+        "output_path",
+        nargs="?",
+        default=str(BASE_DIR / "map_results.json"),
+        help="좌표가 추가된 JSON 저장 경로"
+    )
+
+    # 새 Nominatim 좌표 검색 생략
+    parser.add_argument(
+        "--skip-geocode",
+        action="store_true",
+        help="새로운 좌표 검색 없이 기존 캐시만 사용"
+    )
+    parser.add_argument(
+        "--replace-dataset",
+        action="store_true",
+        help="기존 JSON 백업 후 기사 수 감소를 허용"
+    )
+
+    args = parser.parse_intermixed_args(argv)
+
+    input_path = Path(args.input_path)
+    output_path = Path(args.output_path)
+
+    # P0-1. 입력 파일과 출력 파일이 같으면 저장 중단
+    # resolve()는 상대 경로와 심볼릭 링크도 고려함
     if input_path.resolve() == output_path.resolve():
-        raise SystemExit("지도 입력 파일과 출력 파일은 서로 달라야 합니다.")
+        raise SystemExit(
+            "입력 파일과 출력 파일은 다른 경로여야 합니다. "
+            "원본을 보존합니다."
+        )
 
-    if not input_path.exists():
-        print(f"입력 파일을 찾을 수 없습니다: {input_path}")
+    if not input_path.is_file():
+        raise FileNotFoundError(
+            f"뉴스 입력 JSON 파일이 없습니다: {input_path}"
+        )
+
+    # 뉴스 JSON 읽기
+    with input_path.open("r", encoding="utf-8-sig") as file:
+        data = json.load(file)
+
+    if isinstance(data, list):
+        news_list = data
+
+    elif isinstance(data, dict):
+        news_list = next(
+            (
+                data[key]
+                for key in ("news", "articles", "results", "data", "items")
+                if isinstance(data.get(key), list)
+            ),
+            None
+        )
+
     else:
-        with input_path.open("r", encoding="utf-8") as file:
-            news_list = json.load(file)
+        news_list = None
 
-        print(f"총 {len(news_list)}건의 뉴스를 불러왔습니다. 좌표 변환을 시작합니다...")
+    if not isinstance(news_list, list):
+        raise ValueError(
+            "입력 JSON에서 뉴스 목록을 찾을 수 없습니다. "
+            "기존 출력을 보존합니다."
+        )
 
-        # 지역명을 위도/경도로 변환
-        frontend_news = prepare_news_for_frontend(news_list)
+    # P0-2. 기사 0건 저장 방지
+    if not news_list:
+        raise ValueError(
+            "유효한 뉴스 0건: 기존 지도 결과를 보존합니다."
+        )
 
-        # 최종 JSON 파일 저장
-        if not frontend_news:
-            raise ValueError("유효한 뉴스 0건: 이전 지도 결과 보존")
-        atomic_write_json(output_path, frontend_news)
+    # --skip-geocode 및 오프라인 설정 확인
+    use_geocode = (
+        not args.skip_geocode
+        and os.getenv("MAPNEWS_OFFLINE") != "1"
+    )
 
-        print(f"완료! 좌표가 추가된 파일이 저장되었습니다: {output_path}")
+    # 뉴스 좌표 및 출처 정보 변환
+    frontend_news = prepare_news_for_frontend(
+        news_list,
+        geocode_missing=use_geocode
+    )
+
+    # 변환 결과에 유효한 기사 정보가 있는지 확인
+    if not frontend_news or not any(
+        isinstance(news, dict)
+        and any(
+            str(news.get(field) or "").strip()
+            for field in ("title", "url", "summary", "location")
+        )
+        for news in frontend_news
+    ):
+        raise ValueError(
+            "유효한 뉴스 0건: 기존 지도 결과를 보존합니다."
+        )
+
+    # 변환 전후 기사 개수 확인
+    if len(frontend_news) != len(news_list):
+        raise ValueError(
+            "기사 수가 일치하지 않아 기존 지도 결과를 보존합니다."
+        )
+
+    # 기존 정상 기사와 좌표가 사라지는지 검사
+    protect_existing_news(
+        output_path,
+        frontend_news,
+        allow_shrink=args.replace_dataset
+    )
+
+    # 데이터셋 교체를 요청했다면 기존 JSON 백업
+    if args.replace_dataset and output_path.exists():
+        backup_path = backup_existing_json(output_path)
+        print(f"기존 JSON 백업 완료: {backup_path}")
+
+    # 검증과 백업이 끝난 후 안전하게 저장
+    atomic_write_json(output_path, frontend_news)
+
+    # 결과 출력
+    valid_count = count_valid_coordinate_news(frontend_news)
+
+    print(f"원본 뉴스 수: {len(news_list)}건")
+    print(f"전체 기사 수: {len(frontend_news)}건")
+    print(f"유효 좌표 기사 수: {valid_count}건")
+    print(
+        f"좌표가 없는 기사 수: "
+        f"{len(frontend_news) - valid_count}건"
+    )
+    print(f"JSON 저장 완료: {output_path}")
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
