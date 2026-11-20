@@ -111,7 +111,8 @@ def test_map_without_geocoder_keeps_unlocated_articles(monkeypatch, tmp_path):
     mapped = maps.prepare_news_for_frontend(rows, geocode_missing=False)
     assert len(mapped) == 1
     assert mapped[0]["latitude"] is None and mapped[0]["longitude"] is None
-    assert mapped[0]["source"] == "real"
+    # example.org는 시연용 주소이므로 실제 기사로 분류하지 않는다.
+    assert mapped[0]["source"] == "sample"
 
 
 def test_frontend_prevents_demo_open_link_and_keeps_source():
