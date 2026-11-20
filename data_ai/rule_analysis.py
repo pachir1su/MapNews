@@ -1,33 +1,86 @@
-"""Deterministic, zero-API baseline for MapNews news enrichment.
+"""Conservative, deterministic and API-free article classification/location extraction.
 
-Rule-based results are intentionally conservative: an unknown incident location
-stays unknown. A reporter's "[서울=...]" dateline is not a verified event location.
+Coordinates are NOT calculated here. A named city/district is a regional hint,
+not proof of the incident's exact address. Reporter datelines are never treated
+as incident locations, and unknown/ambiguous places remain unmapped.
 """
 import re
+
 from search import normalize_article
 
 CATEGORIES = ("사고", "화재", "교통", "행사", "사회")
-REGIONS = (
-    "서울특별시", "부산광역시", "대구광역시", "인천광역시", "광주광역시",
-    "대전광역시", "울산광역시", "세종특별자치시", "경기도", "강원특별자치도",
-    "충청남도", "충청북도", "전북특별자치도", "전라남도", "경상남도",
-    "경상북도", "제주특별자치도", "서울", "부산", "대구", "인천",
-    "광주", "대전", "울산", "세종", "경기", "강원", "충남",
-    "충북", "전북", "전남", "경남", "경북", "제주",
+RULE_VERSION = "regional-headline-v2"
+
+# Explicit administrative labels. Add only verified Korean names; do not derive
+# location from arbitrary words ending in '시' (e.g. 반드시, 대학입시).
+SIDO = {
+    "서울": "서울특별시", "부산": "부산광역시",
+    "대구": "대구광역시", "인천": "인천광역시",
+    "광주": "광주광역시", "대전": "대전광역시",
+    "울산": "울산광역시", "세종": "세종특별자치시",
+    "경기": "경기도", "강원": "강원특별자치도",
+    "충남": "충청남도", "충북": "충청북도",
+    "전북": "전북특별자치도", "전남": "전라남도",
+    "경북": "경상북도", "경남": "경상남도",
+    "제주": "제주특별자치도",
+}
+# Explicitly controlled dictionary: a regional centre pin is never advertised
+# as an exact incident location. Ambiguous bare names are intentionally omitted.
+LOCALITIES = {
+    "서울특별시": "강남구 강북구 강동구 성북구 서초구 송파구 관악구 금천구 동작구 마포구 양천구 영등포구 용산구 동대문구 종로구 구로구 은평구 노원구 도봉구 성동구 광진구 서대문구 중랑구",
+    "경기도": "하남시 성남시 안산시 수원시 화성시 용인시 김포시 의왕시 군포시 과천시 고양시 양평군 연천군 이천시 평택시 광명시 안양시 포천시 파주시 오산시 시흥시 남양주시 광주시 부천시 여주시 동두천시 의정부시 가평군",
+    "충청남도": "천안시 아산시 서산시 태안군 공주시 논산시 보령시 당진시 홍성군 예산군 부여군 금산군 서천군 청양군 계룡시",
+    "충청북도": "청주시 충주시 제천시 단양군 음성군 진천군 괴산군 보은군 옥천군 영동군 증평군",
+    "전북특별자치도": "전주시 군산시 정읍시 익산시 남원시 김제시 무주군 고창군 부안군 진안군 완주군 임실군 장수군 순창군",
+    "전라남도": "순천시 여수시 목포시 나주시 광양시 고흥군 화순군 담양군 무안군 영암군 영광군 보성군 장흥군 완도군 신안군 해남군 곡성군 구례군 장성군 함평군 강진군 진도군",
+    "경상북도": "포항시 영덕군 경주시 영양군 구미시 안동시 울진군 김천시 상주시 경산시 문경시 영주시 청도군 칠곡군 성주군 의성군 봉화군 영천시",
+    "경상남도": "창원시 밀양시 양산시 창녕군 거제시 김해시 진주시 통영시 사천시 거창군 합천군 남해군 하동군 고성군 함안군 함양군 산청군 의령군",
+    "강원특별자치도": "원주시 춘천시 강릉시 속초시 동해시 삼척시 태백시 평창군 정선군 횡성군 인제군 양구군 화천군 홍천군 양양군 고성군 철원군 영월군",
+    "제주특별자치도": "제주시 서귀포시",
+    "부산광역시": "해운대구 수영구 사하구 부산진구 기장군 영도구 금정구 연제구 동래구",
+    "대구광역시": "달서구 수성구 달성군 군위군",
+    "인천광역시": "연수구 계양구 미추홀구 남동구 강화군 옹진군",
+    "대전광역시": "유성구 대덕구",
+    "울산광역시": "울주군",
+}
+# A standalone '서구', '동구' or '광주시' is ambiguous. Districts become
+# resolvable when a full metropolitan prefix is present in the headline.
+AMBIGUOUS = {"광주", "광주시", "서구", "동구", "중구", "남구", "북구", "강서구", "고성군"}
+
+def _build_aliases():
+    mapping = {}
+    for short, full in SIDO.items():
+        mapping[short] = full
+        mapping[full] = full
+    mapping.update({"서울시": "서울특별시", "세종시": "세종특별자치시"})
+    for province, names in LOCALITIES.items():
+        for name in names.split():
+            full = f"{province} {name}"
+            if name not in AMBIGUOUS and name not in mapping:
+                mapping[name] = full
+            short = name[:-1] if name.endswith(("시", "군", "구")) else name
+            if short not in AMBIGUOUS and short not in mapping:
+                mapping[short] = full
+    return mapping
+
+ALIASES = _build_aliases()
+TOKEN_RX = re.compile(
+    r"(?<![가-힣])(" +
+    "|".join(re.escape(name) for name in sorted(ALIASES, key=len, reverse=True)) +
+    r")(?=$|[^가-힣]|[은는이가을를에의서와과도만로])"
 )
-REGION_RX = re.compile(
-    r"(?<![가-힣])(" + "|".join(re.escape(x) for x in REGIONS) +
-    r")(?:\s+([가-힣]{1,12}(?:시|군|구)))?"
-    r"(?:\s+([가-힣]{1,12}(?:구|군)))?"
-)
-CITY_RX = re.compile(r"(?<![가-힣])([가-힣]{2,9}(?:시|군))(?=\s|[·,에서의]|$)")
+DISTRICT_RX = re.compile(r"^\s+([가-힣]{2,8}구)(?=$|[^가-힣]|[은는이가을를에의서])")
+SHORT_DISTRICTS = {"서구", "동구", "중구", "남구", "북구", "강서구"}
+ACTIVITY_RX = re.compile(r"사고|화재|추락|충돌|전복|살인|시신|발견|실종|대피|수색|축제|공연|개최")
+BODY_EVENT_RX = re.compile(r"^(?:에서|에|의)\s*(?:.{0,20}?)(?:발생|발견|추락|충돌|열렸|열린|개최|대피|숨졌|수색)")
+DATELINE_RX = re.compile(r"^\s*\[[^\]\n]{1,90}=(?:뉴시스|연합뉴스|뉴스1)\]\s*[^=\n]{0,90}기자\s*=")
+
 CATEGORY_WORDS = (
     ("화재", ("화재", "불길", "불이 나", "불이 난", "산불")),
     ("사고", ("추돌", "충돌", "전복", "추락", "사망 사고", "부상 사고", "교통사고")),
     ("교통", ("도로 통제", "교통 통제", "정체", "차량 통행", "우회 도로")),
     ("행사", ("축제", "전시회", "설명회", "박람회", "개최", "공연")),
 )
-
 
 def classify(title, summary=""):
     text = (title + " " + summary[:120]).lower()
@@ -36,34 +89,91 @@ def classify(title, summary=""):
             return category
     return "사회"
 
+def _find_places(text):
+    """Find only bounded gazetteer tokens, rather than arbitrary '*시' words."""
+    found = []
+    for match in TOKEN_RX.finditer(text):
+        name = match.group(1)
+        canonical = ALIASES[name]
+        # Extend city names only when an explicit following district exists.
+        if canonical.endswith("시"):
+            district = DISTRICT_RX.match(text[match.end():])
+            if district:
+                canonical = canonical + " " + district.group(1)
+        # A province + adjacent ambiguous city/district is still unambiguous.
+        if canonical in SIDO.values():
+            remainder = text[match.end():]
+            district = DISTRICT_RX.match(remainder)
+            if district and district.group(1) in SHORT_DISTRICTS:
+                canonical += " " + district.group(1)
+        found.append((canonical, match.start()))
+    return found
 
-def extract_location(title):
-    """Only take clearly named locations in the headline, not the reporter's dateline."""
-    match = REGION_RX.search(title)
-    if match:
-        return " ".join(x for x in match.groups() if x)
-    match = CITY_RX.search(title)
-    return match.group(1) if match else ""
+def _choose_unique(found):
+    if not found:
+        return "", "none"
+    specific = {x for x, _ in found if " " in x}
+    if len(specific) == 1:
+        selected = next(iter(specific))
+        provinces = {x for x, _ in found if " " not in x}
+        if provinces and provinces != {selected.split(" ", 1)[0]}:
+            return "", "ambiguous"
+        return selected, "headline"
+    if len(specific) > 1:
+        return "", "ambiguous"
+    names = {x for x, _ in found}
+    if len(names) == 1:
+        return next(iter(names)), "headline"
+    return "", "ambiguous"
 
+def locate(title, summary=""):
+    """Return (coarse_region, evidence_type), never a fabricated map coordinate."""
+    title = str(title or "")
+    location, kind = _choose_unique(_find_places(title))
+    if location or kind == "ambiguous":
+        return location, kind
+    # Restricted lead fallback: dateline stripped, single explicit local event
+    # location only. Never use reporter's office city as event location.
+    if not ACTIVITY_RX.search(title):
+        return "", "none"
+    lead = DATELINE_RX.sub("", str(summary or ""), count=1)[:360]
+    found = []
+    for match in TOKEN_RX.finditer(lead):
+        canonical = ALIASES[match.group(1)]
+        if " " not in canonical:
+            continue  # province-only text in article body is not incident evidence
+        if BODY_EVENT_RX.search(lead[match.end():match.end() + 60]):
+            found.append((canonical, match.start()))
+    inferred, kind = _choose_unique(found)
+    return inferred, "lead-event" if inferred else kind
+
+def extract_location(title, summary=""):
+    return locate(title, summary)[0]
 
 def enrich(rows, previous=()):
-    """Preserve a compatible cached result; reclassify changed article content."""
+    """Keep valid Gemini analysis; refresh stale rules after algorithm upgrades."""
     cache = {str(r.get("id")): r for r in previous if isinstance(r, dict)}
     result = []
     for raw in rows:
         item = normalize_article(raw)
         if item is None:
             continue
-        previous_item = cache.get(item["id"])
-        if (previous_item and previous_item.get("content_hash") == item["content_hash"]
-                and previous_item.get("category") in CATEGORIES):
-            category = previous_item["category"]
-            location = str(previous_item.get("location") or "")
-            summary = str(previous_item.get("summary") or "")
-            status = previous_item.get("analysis_status") or "rule-based"
+        old = cache.get(item["id"])
+        reused = bool(
+            old and old.get("content_hash") == item["content_hash"]
+            and old.get("category") in CATEGORIES
+            and (old.get("analysis_status") == "gemini"
+                 or old.get("rule_version") == RULE_VERSION)
+        )
+        if reused:
+            category = old["category"]
+            location = str(old.get("location") or "")
+            summary = str(old.get("summary") or "")
+            status = old.get("analysis_status") or "rule-based"
+            location_source = old.get("location_source") or "cached"
         else:
             category = classify(item["title"], item["summary"])
-            location = extract_location(item["title"])
+            location, location_source = locate(item["title"], item["summary"])
             summary = " ".join(item["summary"].split())[:350]
             if not summary:
                 summary = "원문 요약이 제공되지 않았습니다."
@@ -74,5 +184,6 @@ def enrich(rows, previous=()):
             "datetime": item["datetime"], "source": item["source"],
             "publisher": str(item.get("publisher") or ""),
             "content_hash": item["content_hash"], "analysis_status": status,
+            "rule_version": RULE_VERSION, "location_source": location_source,
         })
     return result

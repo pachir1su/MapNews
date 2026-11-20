@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import subprocess
+import tempfile
 import sys
 from pathlib import Path
 
@@ -33,10 +34,23 @@ def apply_optional_ai(baseline, input_path, ai_path, limit):
         print("GEMINI_API_KEY 없음: Gemini 호출 없이 규칙 기반 분석을 사용합니다.")
         return baseline
     env = dict(os.environ, MAPNEWS_MAX_AI_ARTICLES=str(limit))
-    completed = subprocess.run(
-        [sys.executable, "data_ai/analyze_news.py", str(input_path), str(ai_path)],
-        env=env, check=False,
-    )
+    normalized = load_archive(input_path)
+    if not normalized:
+        return baseline
+    # Legacy numeric IDs must be replaced with canonical URL IDs before Gemini.
+    # Keep the full original article body, not the shortened rule summary.
+    with tempfile.TemporaryDirectory(prefix="mapnews-ai-input-") as directory:
+        canonical_input = Path(directory) / "articles.json"
+        canonical_input.write_text(
+            json.dumps(normalized, ensure_ascii=False, allow_nan=False),
+            encoding="utf-8",
+        )
+        completed = subprocess.run(
+            [sys.executable, str(Path(__file__).resolve().parent /
+                                   "data_ai" / "analyze_news.py"),
+             str(canonical_input), str(ai_path)],
+            env=env, check=False,
+        )
     if completed.returncode:
         print("Gemini 일부/전체 실패: 규칙 기반 결과를 유지하고 다음 실행에서 재시도할 수 있습니다.")
     ai_items = {}
