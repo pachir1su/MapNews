@@ -71,6 +71,18 @@ TOKEN_RX = re.compile(
 )
 DISTRICT_RX = re.compile(r"^\s+([가-힣]{2,8}구)(?=$|[^가-힣]|[은는이가을를에의서])")
 SHORT_DISTRICTS = {"서구", "동구", "중구", "남구", "북구", "강서구"}
+CITY_DISTRICTS = {
+    "충청남도 천안시": {"서북구", "동남구"},
+    "경기도 수원시": {"권선구", "영통구", "장안구", "팔달구"},
+    "경기도 성남시": {"분당구", "수정구", "중원구"},
+    "경기도 고양시": {"덕양구", "일산동구", "일산서구"},
+    "경기도 안산시": {"단원구", "상록구"},
+    "경기도 용인시": {"기흥구", "수지구", "처인구"},
+    "충청북도 청주시": {"흥덕구", "상당구", "서원구", "청원구"},
+    "전북특별자치도 전주시": {"완산구", "덕진구"},
+    "경상북도 포항시": {"남구", "북구"},
+    "경상남도 창원시": {"성산구", "진해구", "의창구", "마산회원구", "마산합포구"},
+}
 ACTIVITY_RX = re.compile(r"사고|화재|추락|충돌|전복|살인|시신|발견|실종|대피|수색|축제|공연|개최")
 BODY_EVENT_RX = re.compile(r"^(?:에서|에|의)\s*(?:.{0,20}?)(?:발생|발견|추락|충돌|열렸|열린|개최|대피|숨졌|수색)")
 DATELINE_RX = re.compile(r"^\s*\[[^\]\n]{1,90}=(?:뉴시스|연합뉴스|뉴스1)\]\s*[^=\n]{0,90}기자\s*=")
@@ -98,7 +110,7 @@ def _find_places(text):
         # Extend city names only when an explicit following district exists.
         if canonical.endswith("시"):
             district = DISTRICT_RX.match(text[match.end():])
-            if district:
+            if district and district.group(1) in CITY_DISTRICTS.get(canonical, set()):
                 canonical = canonical + " " + district.group(1)
         # A province + adjacent ambiguous city/district is still unambiguous.
         if canonical in SIDO.values():
