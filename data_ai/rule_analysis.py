@@ -45,7 +45,13 @@ LOCALITIES = {
 }
 # A standalone '서구', '동구' or '광주시' is ambiguous. Districts become
 # resolvable when a full metropolitan prefix is present in the headline.
-AMBIGUOUS = {"광주", "광주시", "서구", "동구", "중구", "남구", "북구", "강서구", "고성군"}
+AMBIGUOUS = {
+    "광주", "광주시", "서구", "동구", "중구", "남구", "북구",
+    "강서구", "고성군",
+    # Common Korean non-place words; require the explicit administrative suffix.
+    "강화", "예산", "달성", "진도", "영양", "상주", "공주",
+    "영광", "함양", "양산", "진주", "보성", "화성", "무주",
+}
 
 def _build_aliases():
     mapping = {}
@@ -67,7 +73,7 @@ ALIASES = _build_aliases()
 TOKEN_RX = re.compile(
     r"(?<![가-힣])(" +
     "|".join(re.escape(name) for name in sorted(ALIASES, key=len, reverse=True)) +
-    r")(?=$|[^가-힣]|[은는이가을를에의서와과도만로])"
+    r")(?=$|[^가-힣]|(?:에서|으로|은|는|이|가|을|를|에|의|서|와|과|도|만|로|엔)(?=$|[^가-힣]))"
 )
 DISTRICT_RX = re.compile(r"^\s+([가-힣]{2,8}구)(?=$|[^가-힣]|[은는이가을를에의서])")
 SHORT_DISTRICTS = {"서구", "동구", "중구", "남구", "북구", "강서구"}
