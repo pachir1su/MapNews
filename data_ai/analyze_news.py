@@ -86,7 +86,7 @@ def ask_gemini(prompt):
                               str(getattr(exc, "status_code", "") or ""),
                               str(exc))
                 code = next((c for c in ("401", "403", "404", "429", "502", "503", "504")
-                             if any(re.search(r"\\b" + c + r"\\b", p)
+                             if any(re.search(r"\b" + c + r"\b", p)
                                     for p in code_parts)), "")
                 print(f"Gemini {type(exc).__name__} (status={code or 'unknown'})")
                 if code in {"401", "403", "429"}:
