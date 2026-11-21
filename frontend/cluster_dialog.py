@@ -26,6 +26,11 @@ class ClusterDialog(QDialog):
         layout.addWidget(self.count)
         self.model = NewsListModel(self)
         self.model.replace(items)
+        # A proxy filters only fetched source rows. In this dedicated
+        # cluster picker expose the full (virtualized) set so searching row
+        # 900 of a 1,000-marker cluster never silently returns zero results.
+        if self.model.items:
+            self.model.ensure_row(len(self.model.items) - 1)
         self.proxy = QSortFilterProxyModel(self)
         self.proxy.setSourceModel(self.model)
         self.proxy.setFilterCaseSensitivity(Qt.CaseInsensitive)

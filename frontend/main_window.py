@@ -433,6 +433,7 @@ class MainWindow(QMainWindow):
             self.model.replace(visible)
         if current:
             index = next(i for i, item in enumerate(visible) if item.id == current.id)
+            self.model.ensure_row(index)
             self.news.setCurrentIndex(self.model.index(index))
         selection.blockSignals(False)
         if same_rows:
@@ -542,6 +543,8 @@ class MainWindow(QMainWindow):
         selection = self.news.selectionModel()
         selection.blockSignals(True)
         row = next(i for i, item in enumerate(self.model.items) if item.id == identifier)
+        if not self.model.ensure_row(row):
+            return
         index = self.model.index(row)
         self.news.setCurrentIndex(index)
         self.news.scrollTo(index)
