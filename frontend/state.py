@@ -29,7 +29,8 @@ class NewsState:
                 continue
             if self.filters.categories is not None and item.category not in self.filters.categories:
                 continue
-            if self.filters.region and item.location.split()[0] != self.filters.region:
+            region_tokens = item.location.split()
+            if self.filters.region and (not region_tokens or region_tokens[0] != self.filters.region):
                 continue
             haystack = " ".join((item.title, item.summary, item.location, item.category)).casefold()
             if all(term in haystack for term in terms):
