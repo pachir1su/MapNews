@@ -100,9 +100,9 @@ MEDIA_REPORT_RX = re.compile(r"상영|개봉|영화제|OTT|드라마|영화")
 # from the opening paragraph. Reporter location and incidental mentions do not count.
 LEAD_LOCAL_PREDICATE_RX = re.compile(
     r"^(?:.{0,90}?)(?:에서|서|에|의|이|가)"
-    r"[^.!?\\n]{0,105}?"
+    r"[^.!?\n]{0,105}?"
     r"(?:발견|적발|발생|숨졌|추락|충돌|들이받|불이\s*났|대피|실시|개최|열렸|"
-    r"훈련|캠페인|현장\s*점검|방문|선정|압수수색|확인하고\s*있)"
+    r"훈련|캠페인|현장\s*점검|점검|찾아|방문|선정|압수수색|확인하고\s*있)"
 )
 LEAD_EVENT_TITLE_RX = re.compile(
     r"화재|추락|사망|음주운전|적발|사고|발견|실종|시신|수색|사건|"
