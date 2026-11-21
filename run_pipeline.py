@@ -11,8 +11,9 @@ import tempfile
 import sys
 from pathlib import Path
 
-from search import load_archive, main as crawl_main, save_json
+from search import load_archive, main as crawl_main
 from data_ai.rule_analysis import enrich
+from pipeline_transaction import output_lock, recover_pair, publish_pair, verify_pair
 
 
 def load_optional(path):
@@ -167,6 +168,24 @@ def main(argv=None):
         raise ValueError("입력·출력 파일 경로가 같거나 심볼릭 링크로 겹칩니다.")
     if args.max_ai_articles < 0 or args.max_ai_articles > 1000:
         parser.error("--max-ai-articles는 0~1000 범위여야 합니다.")
+    with output_lock(args.map_output):
+        restored = recover_pair(args.analysis_output, args.map_output)
+        if restored:
+            print("중단된 이전 실행의 분석·지도 파일을 함께 복구했습니다.")
+        exit_code = _execute_pipeline(args)
+        if exit_code:
+            return exit_code
+    if args.gui:
+        if not verify_pair(args.analysis_output, args.map_output):
+            raise RuntimeError("분석·지도 파일의 동일 실행 스냅샷 검증에 실패했습니다.")
+        command = [sys.executable, "-m", "frontend", "--json", str(args.map_output)]
+        if args.offline_map:
+            command.append("--offline")
+        return subprocess.run(command, check=False).returncode
+    return 0
+
+
+def _execute_pipeline(args):
     if not args.skip_fetch:
         if crawl_main(["--output", str(args.archive)]):
             return 1
@@ -181,26 +200,23 @@ def main(argv=None):
         baseline = apply_optional_ai(
             baseline, args.archive, Path("data_ai/results_ai.json"), args.max_ai_articles
         )
-    from map_visualization.map_visualization import prepare_news_for_frontend, atomic_write_json
+    from map_visualization.map_visualization import prepare_news_for_frontend
     previous_map = load_optional(args.map_output)
     baseline_for_map = retain_prior_coordinates(baseline, previous_map)
     baseline_for_map = attach_cached_regional_coordinates(baseline_for_map)
     mapped = prepare_news_for_frontend(baseline_for_map, geocode_missing=args.geocode)
     if not mapped:
         raise ValueError("유효한 뉴스가 없어 기존 지도 결과를 보존합니다.")
-    # The map output is written first; a crash never destroys either old valid file.
-    atomic_write_json(args.map_output, mapped)
-    save_json(baseline, args.analysis_output)
+    # Commit the analysis + map as one recoverable transaction.
+    # An atomic manifest records their shared run and file checksums.
+    publish_pair(args.analysis_output, baseline, args.map_output, mapped)
+    if not verify_pair(args.analysis_output, args.map_output):
+        raise RuntimeError("분석·지도 파일의 체크섬이 일치하지 않습니다.")
     pins = sum(row.get("latitude") is not None and row.get("longitude") is not None
                for row in mapped)
     print(f"수집 보관 {len(archive)}건 / 분석 {len(baseline)}건 / 지도 좌표 {pins}건 "
           f"/ 좌표 미확인 {len(mapped)-pins}건")
     print(f"실제 뉴스 파일: {args.map_output}")
-    if args.gui:
-        command = [sys.executable, "-m", "frontend", "--json", str(args.map_output)]
-        if args.offline_map:
-            command.append("--offline")
-        return subprocess.run(command, check=False).returncode
     return 0
 
 

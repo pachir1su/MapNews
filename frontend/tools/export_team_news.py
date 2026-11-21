@@ -53,8 +53,8 @@ def export_news(input_file: Path, output_file: Path, prepare, *,
         raise ValueError("입력 JSON과 출력 JSON은 서로 다른 경로여야 합니다.")
     if not input_file.is_file():
         raise FileNotFoundError(input_file)
-    if input_file.stat().st_size > 8 * 1024 * 1024:
-        raise ValueError("입력 JSON이 8 MiB를 초과했습니다.")
+    if input_file.stat().st_size > 32 * 1024 * 1024:
+        raise ValueError("입력 JSON이 32 MiB를 초과했습니다.")
 
     rows = json.loads(input_file.read_text(encoding="utf-8-sig"))
     if not isinstance(rows, list):
