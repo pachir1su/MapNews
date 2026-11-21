@@ -107,7 +107,7 @@ LEAD_LOCAL_PREDICATE_RX = re.compile(
 # Specific headlines may describe an institution, but the ceremony takes place
 # elsewhere. A single event pin must not be pinned to an awardee's home city.
 REMOTE_CEREMONY_RX = re.compile(r"표창|수상|정부포상|상훈|시상")
-DIGEST_RX = re.compile(r"^\[[^\]]*소식\].*(?:등|외)$")
+DIGEST_RX = re.compile(r"^\[[^\]]{1,30}소식\]")
 MULTISITE_REPORT_RX = re.compile(r"수능|전국.*(?:현장|점검)|복수.*(?:현장|학교)")
 CEREMONY_LEAD_RX = re.compile(r"시상식|수여식")
 QUALIFIED_SHORT_LOCALITIES = {
