@@ -9,7 +9,7 @@ import re
 from search import normalize_article
 
 CATEGORIES = ("사고", "화재", "교통", "행사", "사회")
-RULE_VERSION = "regional-headline-v2"
+RULE_VERSION = "regional-headline-v3"
 
 # Explicit administrative labels. Add only verified Korean names; do not derive
 # location from arbitrary words ending in '시' (e.g. 반드시, 대학입시).
@@ -28,7 +28,7 @@ SIDO = {
 # as an exact incident location. Ambiguous bare names are intentionally omitted.
 LOCALITIES = {
     "서울특별시": "강남구 강북구 강동구 성북구 서초구 송파구 관악구 금천구 동작구 마포구 양천구 영등포구 용산구 동대문구 종로구 구로구 은평구 노원구 도봉구 성동구 광진구 서대문구 중랑구",
-    "경기도": "하남시 성남시 안산시 수원시 화성시 용인시 김포시 의왕시 군포시 과천시 고양시 양평군 연천군 이천시 평택시 광명시 안양시 포천시 파주시 오산시 시흥시 남양주시 광주시 부천시 여주시 동두천시 의정부시 가평군",
+    "경기도": "하남시 안성시 성남시 안산시 수원시 화성시 용인시 김포시 의왕시 군포시 과천시 고양시 양평군 연천군 이천시 평택시 광명시 안양시 포천시 파주시 오산시 시흥시 남양주시 광주시 부천시 여주시 동두천시 의정부시 가평군",
     "충청남도": "천안시 아산시 서산시 태안군 공주시 논산시 보령시 당진시 홍성군 예산군 부여군 금산군 서천군 청양군 계룡시",
     "충청북도": "청주시 충주시 제천시 단양군 음성군 진천군 괴산군 보은군 옥천군 영동군 증평군",
     "전북특별자치도": "전주시 군산시 정읍시 익산시 남원시 김제시 무주군 고창군 부안군 진안군 완주군 임실군 장수군 순창군",
@@ -75,7 +75,7 @@ TOKEN_RX = re.compile(
     "|".join(re.escape(name) for name in sorted(ALIASES, key=len, reverse=True)) +
     r")(?=$|[^가-힣]|(?:에서|으로|은|는|이|가|을|를|에|의|서|와|과|도|만|로|엔)(?=$|[^가-힣]))"
 )
-DISTRICT_RX = re.compile(r"^\s+([가-힣]{2,8}구)(?=$|[^가-힣]|[은는이가을를에의서])")
+DISTRICT_RX = re.compile(r"^\s+([가-힣]{1,8}구)(?=$|[^가-힣]|[은는이가을를에의서])")
 SHORT_DISTRICTS = {"서구", "동구", "중구", "남구", "북구", "강서구"}
 CITY_DISTRICTS = {
     "충청남도 천안시": {"서북구", "동남구"},
@@ -92,6 +92,23 @@ CITY_DISTRICTS = {
 ACTIVITY_RX = re.compile(r"사고|화재|추락|충돌|전복|살인|시신|발견|실종|대피|수색|축제|공연|개최")
 BODY_EVENT_RX = re.compile(r"^(?:에서|에|의)\s*(?:.{0,20}?)(?:발생|발견|추락|충돌|열렸|열린|개최|대피|숨졌|수색)")
 DATELINE_RX = re.compile(r"^\s*\[[^\]\n]{1,90}=(?:뉴시스|연합뉴스|뉴스1)\]\s*[^=\n]{0,90}기자\s*=")
+
+MEDIA_QUOTED_TITLE_RX = re.compile(r"'[^']{2,60}'|‘[^’]{2,60}’|“[^”]{2,60}”")
+MEDIA_ARTICLE_RX = re.compile(r"배급사|영화|다큐멘터리|연출작|신작 드라마")
+MEDIA_REPORT_RX = re.compile(r"상영|개봉|영화제|OTT|드라마|영화")
+# Only an explicit place followed by a concrete local event may be sourced
+# from the opening paragraph. Reporter location and incidental mentions do not count.
+LEAD_LOCAL_PREDICATE_RX = re.compile(
+    r"^(?:.{0,90}?)(?:에서|서|에|의|이|가)"
+    r"[^.!?\n]{0,105}?"
+    r"(?:발견|적발|발생|숨졌|추락|충돌|들이받|불이\s*났|대피|실시|개최|열렸|"
+    r"훈련|캠페인|현장\s*점검|점검|찾아|방문|선정|압수수색|확인하고\s*있)"
+)
+LEAD_EVENT_TITLE_RX = re.compile(
+    r"화재|추락|사망|음주운전|적발|사고|발견|실종|시신|수색|사건|"
+    r"구조훈련|훈련|캠페인|현장|점검|선정|개소|개최|축제|방문|현장교육|한 컷|불|거리서"
+)
+
 
 CATEGORY_WORDS = (
     ("화재", ("화재", "불길", "불이 나", "불이 난", "산불")),
@@ -135,7 +152,16 @@ def _choose_unique(found):
         selected = next(iter(specific))
         provinces = {x for x, _ in found if " " not in x}
         if provinces and provinces != {selected.split(" ", 1)[0]}:
-            return "", "ambiguous"
+            # A headline beginning with one explicit city is often followed
+            # by broader comparison regions. Prefer that singular city only
+            # when it appears before all conflicting province references.
+            first_specific = min(pos for name, pos in found if name == selected)
+            other_positions = [
+                pos for name, pos in found
+                if " " not in name and name != selected.split(" ", 1)[0]
+            ]
+            if other_positions and first_specific >= min(other_positions):
+                return "", "ambiguous"
         return selected, "headline"
     if len(specific) > 1:
         return "", "ambiguous"
@@ -145,24 +171,44 @@ def _choose_unique(found):
     return "", "ambiguous"
 
 def locate(title, summary=""):
-    """Return (coarse_region, evidence_type), never a fabricated map coordinate."""
+    """Return (coarse_region, evidence_type), never an invented event address."""
     title = str(title or "")
-    location, kind = _choose_unique(_find_places(title))
+    body = str(summary or "")
+    headline = title
+    # A quoted name of a film must not be treated as its physical screening
+    # location. Strip only when the headline AND article lead substantiate
+    # that the quote is a media title.
+    if MEDIA_REPORT_RX.search(title) and MEDIA_ARTICLE_RX.search(
+            DATELINE_RX.sub("", body, count=1)[:260]):
+        headline = MEDIA_QUOTED_TITLE_RX.sub("", headline)
+    location, kind = _choose_unique(_find_places(headline))
     if location or kind == "ambiguous":
         return location, kind
-    # Restricted lead fallback: dateline stripped, single explicit local event
-    # location only. Never use reporter's office city as event location.
-    if not ACTIVITY_RX.search(title):
+    # Look for explicit local event evidence in the lead only, never treat
+    # [서울=뉴시스] or other reporter datelines as event locations.
+    if not (ACTIVITY_RX.search(title) or LEAD_EVENT_TITLE_RX.search(title)):
         return "", "none"
-    lead = DATELINE_RX.sub("", str(summary or ""), count=1)[:360]
-    found = []
+    lead = DATELINE_RX.sub("", body, count=1)[:410]
+    matched = []
     for match in TOKEN_RX.finditer(lead):
-        canonical = ALIASES[match.group(1)]
+        name = match.group(1)
+        canonical = ALIASES[name]
+        # A named metropolitan city and following district are a precise
+        # enough administrative reference; the province alone is not.
+        if canonical in SIDO.values():
+            district = DISTRICT_RX.match(lead[match.end():])
+            if district and district.group(1) in SHORT_DISTRICTS:
+                canonical += " " + district.group(1)
         if " " not in canonical:
-            continue  # province-only text in article body is not incident evidence
-        if BODY_EVENT_RX.search(lead[match.end():match.end() + 60]):
-            found.append((canonical, match.start()))
-    inferred, kind = _choose_unique(found)
+            continue  # province-only lead reference is insufficient
+        # Extend explicit city + verified district without inventing districts.
+        if canonical.endswith("시"):
+            district = DISTRICT_RX.match(lead[match.end():])
+            if district and district.group(1) in CITY_DISTRICTS.get(canonical, set()):
+                canonical += " " + district.group(1)
+        if LEAD_LOCAL_PREDICATE_RX.match(lead[match.end():match.end() + 190]):
+            matched.append((canonical, match.start()))
+    inferred, kind = _choose_unique(matched)
     return inferred, "lead-event" if inferred else kind
 
 def extract_location(title, summary=""):

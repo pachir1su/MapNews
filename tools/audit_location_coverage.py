@@ -17,7 +17,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from search import load_archive
-from data_ai.rule_analysis import RULE_VERSION, enrich, locate
+from data_ai.rule_analysis import DATELINE_RX, RULE_VERSION, enrich, locate
 
 # Historical baseline is diagnostics-only; it is not used to decide locations.
 OLD_REGIONS = (
@@ -61,12 +61,27 @@ def audit(archive, cache):
         old_hits += bool(old and old in cache)
         new_hits += bool(region and region in cache)
         kinds[evidence] += 1
+        lead = DATELINE_RX.sub("", str(source.get("summary") or ""), count=1)
+        # Review flags are triage suggestions, not claims of incorrect places.
+        reasons = []
+        if old != region:
+            reasons.append("legacy-diff")
+        if evidence == "lead-event":
+            reasons.append("body-inference")
+        if evidence == "ambiguous":
+            reasons.append("multiple-regions")
+        if not region and re.search(r"(?:시|군|구)(?:에서|에|의)", lead[:300]):
+            reasons.append("possible-missed-place")
+        if region and re.search(r"영화|배급사|작품|드라마", lead[:160]):
+            reasons.append("media-context")
         records.append({
             "id": article["id"], "title": title, "url": article.get("url") or "",
             "location": region, "evidence": evidence,
             "cache_hit": bool(region and region in cache),
             "previous_location": old, "previous_cache_hit": bool(old and old in cache),
             "category": article.get("category") or "",
+            "lead_excerpt": " ".join(lead.split())[:180],
+            "review_flags": ",".join(reasons),
         })
     summary = {
         "rule_version": RULE_VERSION,
@@ -76,6 +91,8 @@ def audit(archive, cache):
         "new_title_or_lead_matched": sum(bool(x["location"]) for x in records),
         "new_exact_cache_hits": new_hits,
         "cache_keys": len(cache),
+        "manual_review_candidates": sum(bool(x["review_flags"]) for x in records),
+        "machine_audited_rows": len(records),
         "evidence_counts": dict(kinds),
         "quality_note": (
             "A cache hit is a coarse regional centre; it is NOT a verified "
@@ -87,6 +104,7 @@ def audit(archive, cache):
             "Cached coordinates may be approximate or stale",
             "Archived news_results.json and old map_results.json need not share an input run",
             "Cached analysis outputs are refreshed by rule_version in the application",
+            "Article lead excerpts and review flags are review aids, not independently validated labels",
         ],
     }
     return summary, records
