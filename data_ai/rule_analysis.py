@@ -184,8 +184,14 @@ def locate(title, summary=""):
     for match in TOKEN_RX.finditer(lead):
         name = match.group(1)
         canonical = ALIASES[name]
+        # A named metropolitan city and following district are a precise
+        # enough administrative reference; the province alone is not.
+        if canonical in SIDO.values():
+            district = DISTRICT_RX.match(lead[match.end():])
+            if district and district.group(1) in SHORT_DISTRICTS:
+                canonical += " " + district.group(1)
         if " " not in canonical:
-            continue  # country/province-only lead reference is insufficient
+            continue  # province-only lead reference is insufficient
         # Extend explicit city + verified district without inventing districts.
         if canonical.endswith("시"):
             district = DISTRICT_RX.match(lead[match.end():])
