@@ -6,6 +6,8 @@ from typing import Protocol
 from .models import NewsBatch, parse_news
 
 RESOURCES = Path(__file__).resolve().parent / "resources"
+# Align frontend input with the 32 MiB crawler/archive output boundary.
+MAX_JSON_BYTES = 32 * 1024 * 1024
 
 
 class NewsProvider(Protocol):
@@ -28,9 +30,9 @@ class JsonNewsProvider:
             return NewsBatch((), source=self.label)
         # Bound memory and parsing work; read bytes once to avoid stat/read races.
         with self.path.open("rb") as stream:
-            raw = stream.read(8 * 1024 * 1024 + 1)
-        if len(raw) > 8 * 1024 * 1024:
-            raise ValueError("JSON 파일은 8 MiB 이하여야 합니다.")
+            raw = stream.read(MAX_JSON_BYTES + 1)
+        if len(raw) > MAX_JSON_BYTES:
+            raise ValueError("JSON 파일은 32 MiB 이하여야 합니다.")
         payload = json.loads(raw.decode("utf-8-sig"))
         return parse_news(payload, is_mock=self.is_mock, source=self.label)
 
