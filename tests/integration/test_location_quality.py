@@ -148,3 +148,51 @@ def test_inventory_rules_do_not_invent_false_place_tokens():
     for row in results:
         assert row["location"] not in {"반드시", "대학입시", "통합시", "혁신도시", "특례시"}
         assert row["location_source"] in {"headline", "lead-event", "none", "ambiguous"}
+
+
+@pytest.mark.parametrize("headline,summary,expected", [
+    (
+        "12·3계엄 다룬 '서울의 밤', 16개 국제영화제서 상영",
+        "[서울=뉴시스] 남정현 기자 = 배급사 영화로운형제는 영화 '서울의 밤'이 국제영화제에서 상영됐다고 밝혔다.",
+        "",
+    ),
+    (
+        "영덕군청 女공무원 음주운전 적발…면허 취소 수준",
+        "[포항=뉴시스]안병철 기자 = 경북 영덕군청 소속 공무원이 적발됐다. "
+        "포항시 북구의 한 도로에서 영덕군청 공무원이 경찰 단속에 적발됐다.",
+        "경상북도 포항시 북구",
+    ),
+    (
+        "지진 상황 가정한 해상 케이블카 고장사고 인명 구조훈련",
+        "18일 경기 화성시 전곡항 해상케이블카에서 특수대응단이 인명구조 훈련을 하고 있다.",
+        "경기도 화성시",
+    ),
+    (
+        "수능 시험장 반입 금지 물품 안내문에 '별 세개 밑줄 쫙' [오늘의 한 컷]",
+        "[대구=뉴시스] 이무열 기자 = 18일 대구 중구 경북대사대부고에서 수험생이 안내문을 확인하고 있다.",
+        "대구광역시",
+    ),
+    (
+        "수원지법 화성시법원 신축부지에 '병점복합타운' 선정",
+        "[서울=뉴시스]홍연우 기자 = 법원의 신축부지로 경기 화성시 병점복합타운이 선정됐다.",
+        "경기도 화성시",
+    ),
+    (
+        "영덕군청 女공무원 음주운전 적발…면허 취소 수준",
+        "[포항=뉴시스]기자 = 사건 발생 지역은 확인되지 않았다.",
+        "",
+    ),
+    (
+        "서울과 부산 특별 교류 사업",
+        "[서울=뉴시스] 기자 = 서울과 부산의 협력 사업이다.",
+        "",
+    ),
+])
+def test_article_lead_requires_actual_local_evidence(headline, summary, expected):
+    assert locate(headline, summary)[0] == expected
+
+def test_media_title_does_not_disable_unquoted_local_place():
+    headline = "부산 영화제서 '서울의 밤' 상영"
+    summary = "[부산=뉴시스] 기자 = 영화 '서울의 밤'이 부산에서 상영됐다."
+    assert locate(headline, summary)[0] == "부산광역시"
+
