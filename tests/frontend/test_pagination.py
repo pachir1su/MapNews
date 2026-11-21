@@ -1,6 +1,6 @@
 """Incremental loading: 10k saved rows need not create 10k Qt model rows."""
 from PySide6.QtCore import QModelIndex
-from frontend.news_list import NewsListModel, PAGE_SIZE
+from frontend.news_list import NewsListModel, PAGE_SIZE, ITEM_ROLE
 from frontend.models import parse_news
 from frontend.main_window import MainWindow
 
@@ -23,7 +23,7 @@ def test_list_lazy_fetches_without_building_all_qt_rows(qtbot):
     assert model.canFetchMore()
     model.fetchMore()
     assert model.rowCount() == PAGE_SIZE * 2
-    assert model.data(model.index(PAGE_SIZE), model.ItemDataRole.UserRole + 1) == items[PAGE_SIZE]
+    assert model.data(model.index(PAGE_SIZE), ITEM_ROLE) == items[PAGE_SIZE]
     assert not model.canFetchMore(model.index(0))
 
 
@@ -38,8 +38,9 @@ def test_map_selection_can_reveal_an_unfetched_article(qtbot, tmp_path):
     batch = NewsBatch(_items(300))
     window._loaded(batch)
     assert len(window.model.items) == 300
-    window.select_news("249")
-    assert window.state.selected_id == "249"
+    later_id = window.model.items[249].id
+    window.select_news(later_id)
+    assert window.state.selected_id == later_id
     assert window.news.currentIndex().isValid()
     assert window.news.currentIndex().row() == 249
     assert window.model.rowCount() >= 250
