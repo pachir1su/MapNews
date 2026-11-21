@@ -4,9 +4,17 @@ import sys
 import json
 import time
 import hashlib
+import tempfile
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from email.utils import parsedate_to_datetime
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from pipeline_transaction import output_lock
+from data_ai.task_queue import (read_queue, rebuild_queue, select_ready,
+                                mark_batch, write_queue)
 
 # ---------- 설정 ----------
 # 사용할 모델 (앞에서부터 차례로 시도해요)
@@ -24,8 +32,18 @@ DEMO_OUTPUT = "data_ai/results.json"        # 더미 분석 결과
 REAL_OUTPUT = "data_ai/results_real.json"   # 실제(크롤러) 분석 결과
 
 BATCH_SIZE = 5            # 한 번 요청에 보낼 기사 수
-MAX_AI_ARTICLES_PER_RUN = max(0, min(1000, int(os.getenv("MAPNEWS_MAX_AI_ARTICLES", "30"))))
-MAX_AI_REQUESTS_PER_RUN = max(1, min(60, int(os.getenv("MAPNEWS_MAX_AI_REQUESTS", "12"))))
+
+def _env_limit(name, default, low, high):
+    try:
+        value = int(os.getenv(name, str(default)))
+    except (ValueError, TypeError):
+        raise ValueError(f"{name}은 정수여야 합니다.") from None
+    if not low <= value <= high:
+        raise ValueError(f"{name}은 {low}~{high} 범위여야 합니다.")
+    return value
+
+MAX_AI_ARTICLES_PER_RUN = _env_limit("MAPNEWS_MAX_AI_ARTICLES", 30, 0, 1000)
+MAX_AI_REQUESTS_PER_RUN = _env_limit("MAPNEWS_MAX_AI_REQUESTS", 12, 1, 60)
 _api_attempts = 0
 MAX_BODY_CHARS = 1500     # 기사 본문은 이 글자 수까지만 AI에게 보내요
 KST = timezone(timedelta(hours=9))
@@ -47,7 +65,7 @@ def get_client():
 
 
 def ask_gemini(prompt):
-    """Respect the total request budget, including retries and model fallbacks."""
+    """Bound all requests. Quota/auth failures never cause fallback storms."""
     global _api_attempts
     for model_name in MODEL_LIST:
         for attempt in range(1, 3):
@@ -56,26 +74,30 @@ def ask_gemini(prompt):
                 return None
             try:
                 _api_attempts += 1
-                print(f"  [{model_name}] {attempt}번째 시도...")
                 response = get_client().models.generate_content(
-                    model=model_name,
-                    contents=prompt,
+                    model=model_name, contents=prompt,
                     config={"response_mime_type": "application/json"},
                 )
-                return response.text
-            except Exception as e:
-                message = str(e)
-                if "429" in message or "404" in message:
-                    print(f"  [{model_name}] 쓸 수 없어요. 다음 모델로 넘어가요.")
-                    break
-                elif "503" in message and attempt < 2:
-                    print("  서버가 바빠요. 5초 뒤 다시 해요...")
-                    time.sleep(5)
-                else:
-                    print(f"  에러: {message[:150]}")
-                    break
+                value = getattr(response, "text", None)
+                return value if isinstance(value, str) and value.strip() else None
+            except Exception as exc:
+                # Do not log the full request/credential-bearing exception.
+                code_parts = (str(getattr(exc, "code", "") or ""),
+                              str(getattr(exc, "status_code", "") or ""),
+                              str(exc))
+                code = next((c for c in ("401", "403", "404", "429", "502", "503", "504")
+                             if any(re.search(r"\b" + c + r"\b", p)
+                                    for p in code_parts)), "")
+                print(f"Gemini {type(exc).__name__} (status={code or 'unknown'})")
+                if code in {"401", "403", "429"}:
+                    return None
+                if code == "404":
+                    break  # Only genuinely missing models may fall back.
+                if code in {"502", "503", "504"} and attempt < 2:
+                    time.sleep(2)
+                    continue
+                break
     return None
-
 
 def clean_json_text(text):
     """AI 답변에 ```json 표시가 붙어 있으면 벗겨내요."""
@@ -152,44 +174,53 @@ def is_valid_result(item):
 
 
 def load_existing(path, source):
-    """이미 분석한 결과를 불러와요. 파일이 깨졌으면 덮어쓰지 않도록 멈춰요."""
+    """Fail closed on corrupt/partial output: never silently discard old rows."""
     if not os.path.exists(path):
         return []
     try:
-        with open(path, encoding="utf-8") as f:
-            data = json.load(f)
+        with Path(path).open("rb") as stream:
+            raw = stream.read(32 * 1024 * 1024 + 1)
+        if len(raw) > 32 * 1024 * 1024:
+            raise ValueError("기존 분석 결과 파일이 32 MiB를 초과했습니다.")
+        data = json.loads(raw.decode("utf-8-sig"))
         if not isinstance(data, list):
-            raise ValueError("최상위가 리스트가 아니에요")
-    except (OSError, ValueError) as e:
-        raise SystemExit(
-            f"{path} 파일을 읽지 못했어요({e}).\n"
-            f"덮어쓰지 않도록 멈출게요. 파일 이름을 바꿔 두고 다시 실행해 주세요."
-        )
+            raise ValueError("기존 AI 결과는 JSON 배열이어야 합니다.")
+    except (OSError, ValueError, UnicodeError) as exc:
+        raise ValueError(
+            f"기존 AI 결과를 안전하게 읽을 수 없어 덮어쓰지 않습니다: {path} "
+            f"({type(exc).__name__})"
+        ) from exc
 
-    results = []
-    seen = set()
-    for item in data:
+    results, seen = [], set()
+    for index, item in enumerate(data):
         if not is_valid_result(item):
-            continue
-        item["id"] = str(item["id"]).strip()     # id 자료형 통일(글자)
+            raise ValueError(f"기존 AI 결과의 {index + 1}행이 불완전하여 파일을 보호합니다.")
+        item = dict(item)
+        item["id"] = str(item["id"]).strip()
         if item["id"] in seen:
-            continue
+            raise ValueError(f"기존 AI 결과에 중복 ID가 있어 덮어쓰지 않습니다: {item['id']}")
         seen.add(item["id"])
         item.setdefault("source", source)
         results.append(item)
     return results
 
-
 def save_json_safely(path, data):
-    """임시 파일에 먼저 쓰고, 성공하면 바꿔치기해요. 중간에 실패해도 기존 파일은 안전해요."""
-    folder = os.path.dirname(path)
-    if folder:
-        os.makedirs(folder, exist_ok=True)
-    temp_path = path + ".tmp"
-    with open(temp_path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-    os.replace(temp_path, path)
-
+    """Unique temporary JSON + fsync + rename, with cleanup on every failure."""
+    destination = Path(path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", dir=destination.parent,
+                prefix=".mapnews-ai-", suffix=".tmp", delete=False) as stream:
+            temporary = Path(stream.name)
+            json.dump(data, stream, ensure_ascii=False, indent=2, allow_nan=False)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, destination)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 # ---------- 프롬프트와 분석 ----------
 def make_prompt(batch):
@@ -269,60 +300,96 @@ def analyze_batch(batch, source):
 
 
 # ---------- 메인 ----------
-def main():
-    # 사용법: python data_ai/analyze_news.py [입력파일] [출력파일]
-    input_path = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_INPUT
-    is_demo = "dummy" in os.path.basename(input_path).lower()
-    source = "demo" if is_demo else "real"
-    output_path = sys.argv[2] if len(sys.argv) > 2 else (DEMO_OUTPUT if is_demo else REAL_OUTPUT)
-    if Path(input_path).resolve() == Path(output_path).resolve():
-        raise SystemExit("입력 파일과 AI 결과 출력 파일은 서로 달라야 합니다.")
+def _read_input(path):
+    with Path(path).open("rb") as stream:
+        raw = stream.read(32 * 1024 * 1024 + 1)
+    if len(raw) > 32 * 1024 * 1024:
+        raise ValueError("Gemini 입력 파일은 32 MiB 이하여야 합니다.")
+    result = json.loads(raw.decode("utf-8-sig"))
+    if not isinstance(result, list) or len(result) > 10000:
+        raise ValueError("Gemini 입력은 최대 10,000건 JSON 배열이어야 합니다.")
+    return result
 
-    # 1. 기사 읽기
-    with open(input_path, encoding="utf-8") as f:
-        raw_list = json.load(f)
 
-    articles = []
-    seen_ids = set()
+def _run_analysis(input_path, output_path, queue_path, source):
+    global _api_attempts
+    _api_attempts = 0
+    raw_list = _read_input(input_path)
+    articles, seen_ids = [], set()
     for raw in raw_list:
         article = normalize_article(raw)
-        if article is None or article["id"] in seen_ids:   # 제목이 없거나 id가 겹치면 제외
+        if article is None or article["id"] in seen_ids:
             continue
         seen_ids.add(article["id"])
         articles.append(article)
+    if not articles:
+        raise ValueError("AI 입력에 유효한 기사가 0건입니다. 기존 결과를 보존합니다.")
 
-    # 2. 이미 분석한 결과 불러오기 (다시 안 부르려고)
+    # Saved AI results are the only durable completion authority; after a
+    # crash, a stale queue alone never marks an article as completed.
     results = load_existing(output_path, source)
     input_hashes = {a["id"]: a["content_hash"] for a in articles}
-    results = [item for item in results if
-               item["id"] not in input_hashes or
-               item.get("content_hash") == input_hashes[item["id"]]]
-    done_ids = {item["id"] for item in results}
-    pending = [a for a in articles if a["id"] not in done_ids]
-    todo = pending[:MAX_AI_ARTICLES_PER_RUN]
-    print(f"입력 {len(articles)}개 / 이미 분석 {len(done_ids)}개 / 이번에 분석 {len(todo)}개 ({source})\n")
+    results = [r for r in results if (r["id"] not in input_hashes
+               or r.get("content_hash") == input_hashes[r["id"]])]
+    queue = rebuild_queue(articles, results, read_queue(queue_path))
+    write_queue(queue_path, queue)
+    ready = select_ready(queue, MAX_AI_ARTICLES_PER_RUN)
+    article_lookup = {a["id"]: a for a in articles}
+    todo = [article_lookup[r["id"]] for r in ready]
+    done_count = sum(r["status"] == "completed" for r in queue)
+    wait_count = sum(r["status"] in {"retry_wait", "failed"} for r in queue)
+    print(f"입력 {len(articles)}개 / 완료 {done_count}개 / AI 대상 {len(todo)}개 "
+          f"/ 재시도대기·종료 {wait_count}개")
 
-    # 3. 5개씩 묶어서 분석하기
-    failed = 0
+    failures = 0
     for start in range(0, len(todo), BATCH_SIZE):
         batch = todo[start:start + BATCH_SIZE]
-        print(f"{start + 1}번째 ~ {start + len(batch)}번째 기사 분석 중...")
         good = analyze_batch(batch, source)
         if good is None:
-            print("여기까지 저장하고 멈출게요.")
-            failed += len(todo) - start
+            failures += len(batch)
+            mark_batch(queue, failed=[a["id"] for a in batch],
+                       reason="Gemini API 일시 불가/호출 한도")
+            write_queue(queue_path, queue)
             break
+        good_ids = {r["id"] for r in good}
         results.extend(good)
-        failed += len(batch) - len(good)
-        save_json_safely(output_path, results)       # 한 묶음마다 안전하게 저장
-        print(f"  저장 완료 (누적 {len(results)}개)\n")
+        # Persist result before queue completion: on crash, the next rebuild
+        # derives completion from the result's (id, content_hash) pair.
+        save_json_safely(output_path, results)
+        missing = [a["id"] for a in batch if a["id"] not in good_ids]
+        failures += len(missing)
+        mark_batch(queue, completed=good_ids, failed=missing,
+                   reason="AI 응답 JSON/기사 ID/분류 검증 실패")
+        write_queue(queue_path, queue)
 
-    save_json_safely(output_path, results)
-    deferred = len(pending) - len(todo)
-    print(f"끝! 결과 {len(results)}개 -> {output_path} (실패 {failed}개 / 예산 보류 {deferred}개)")
-    if failed:
+    if not Path(output_path).exists():
+        save_json_safely(output_path, results)
+    remaining = sum(r["status"] in {"pending", "retry_wait"} for r in queue)
+    print(f"AI 결과 {len(results)}개 / 대기 {remaining}개 / 이번 실패 {failures}개")
+    if failures:
         raise SystemExit(3)
 
 
+def main():
+    # python data_ai/analyze_news.py [입력] [결과] [파생 큐]
+    input_path = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(DEFAULT_INPUT)
+    is_demo = "dummy" in input_path.name.lower()
+    source = "demo" if is_demo else "real"
+    output_path = Path(sys.argv[2] if len(sys.argv) > 2
+                       else (DEMO_OUTPUT if is_demo else REAL_OUTPUT))
+    queue_path = Path(sys.argv[3]) if len(sys.argv) > 3 else (
+        output_path.with_name("ai_queue.json") if output_path.name == "results_ai.json"
+        else output_path.with_name(output_path.stem + ".queue.json")
+    )
+    if len({p.resolve() for p in (input_path, output_path, queue_path)}) != 3:
+        raise ValueError("입력·분석 결과·작업 큐는 서로 다른 파일이어야 합니다.")
+    with output_lock(queue_path):
+        return _run_analysis(input_path, output_path, queue_path, source)
+
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except (OSError, ValueError, UnicodeError) as exc:
+        print(f"Gemini 분석 중단(기존 결과 보존): {type(exc).__name__}: {exc}",
+              file=sys.stderr)
+        raise SystemExit(1) from exc

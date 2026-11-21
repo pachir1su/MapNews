@@ -20,3 +20,6 @@ data_ai/results_real.json
 map_visualization/.*.lock
 map_visualization/.*.pending-transaction.json
 map_visualization/*.manifest.json
+
+# Derived Gemini job queues; contain cached news text
+data_ai/*queue.json
