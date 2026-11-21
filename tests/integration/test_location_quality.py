@@ -196,3 +196,30 @@ def test_media_title_does_not_disable_unquoted_local_place():
     summary = "[부산=뉴시스] 기자 = 영화 '서울의 밤'이 부산에서 상영됐다."
     assert locate(headline, summary)[0] == "부산광역시"
 
+
+
+@pytest.mark.parametrize("headline,summary,expected", [
+    (
+        "의성군, 대구·경북 첫 청년친화도시 지정",
+        "[안동=뉴시스] 기자 = 경북 의성군이 정부 지정 청년친화도시로 선정됐다.",
+        "경상북도 의성군",
+    ),
+    (
+        "부산서구서 정박중이던 어선서 불…인명피해 없어",
+        "[부산=뉴시스] 기자 = 18일 부산 서구의 한 계류장에 정박 중이던 어선에서 불이 났다.",
+        "부산광역시 서구",
+    ),
+    (
+        '"방문진료·간호 한팀 돼야"…정은경, 안성 재택간호센터 점검',
+        "[세종=뉴시스] 기자 = 경기 안성시에 위치한 재택간호센터를 찾아 점검했다.",
+        "경기도 안성시",
+    ),
+    (
+        "수능 끝난 날, 홍대 거리서 청소년 고민 듣는다",
+        "[서울=뉴시스] 기자 = 서울 마포구는 홍대 걷고싶은거리에서 캠페인을 펼친다고 밝혔다.",
+        "서울특별시 마포구",
+    ),
+])
+def test_verified_body_event_extraction_more_real_cases(headline, summary, expected):
+    assert locate(headline, summary)[0] == expected
+

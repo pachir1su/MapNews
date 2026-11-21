@@ -28,7 +28,7 @@ SIDO = {
 # as an exact incident location. Ambiguous bare names are intentionally omitted.
 LOCALITIES = {
     "서울특별시": "강남구 강북구 강동구 성북구 서초구 송파구 관악구 금천구 동작구 마포구 양천구 영등포구 용산구 동대문구 종로구 구로구 은평구 노원구 도봉구 성동구 광진구 서대문구 중랑구",
-    "경기도": "하남시 성남시 안산시 수원시 화성시 용인시 김포시 의왕시 군포시 과천시 고양시 양평군 연천군 이천시 평택시 광명시 안양시 포천시 파주시 오산시 시흥시 남양주시 광주시 부천시 여주시 동두천시 의정부시 가평군",
+    "경기도": "하남시 안성시 성남시 안산시 수원시 화성시 용인시 김포시 의왕시 군포시 과천시 고양시 양평군 연천군 이천시 평택시 광명시 안양시 포천시 파주시 오산시 시흥시 남양주시 광주시 부천시 여주시 동두천시 의정부시 가평군",
     "충청남도": "천안시 아산시 서산시 태안군 공주시 논산시 보령시 당진시 홍성군 예산군 부여군 금산군 서천군 청양군 계룡시",
     "충청북도": "청주시 충주시 제천시 단양군 음성군 진천군 괴산군 보은군 옥천군 영동군 증평군",
     "전북특별자치도": "전주시 군산시 정읍시 익산시 남원시 김제시 무주군 고창군 부안군 진안군 완주군 임실군 장수군 순창군",
@@ -106,7 +106,7 @@ LEAD_LOCAL_PREDICATE_RX = re.compile(
 )
 LEAD_EVENT_TITLE_RX = re.compile(
     r"화재|추락|사망|음주운전|적발|사고|발견|실종|시신|수색|사건|"
-    r"구조훈련|훈련|캠페인|현장|점검|선정|개소|개최|축제|방문|현장교육|한 컷"
+    r"구조훈련|훈련|캠페인|현장|점검|선정|개소|개최|축제|방문|현장교육|한 컷|불|거리서"
 )
 
 
@@ -152,7 +152,16 @@ def _choose_unique(found):
         selected = next(iter(specific))
         provinces = {x for x, _ in found if " " not in x}
         if provinces and provinces != {selected.split(" ", 1)[0]}:
-            return "", "ambiguous"
+            # A headline beginning with one explicit city is often followed
+            # by broader comparison regions. Prefer that singular city only
+            # when it appears before all conflicting province references.
+            first_specific = min(pos for name, pos in found if name == selected)
+            other_positions = [
+                pos for name, pos in found
+                if " " not in name and name != selected.split(" ", 1)[0]
+            ]
+            if other_positions and first_specific >= min(other_positions):
+                return "", "ambiguous"
         return selected, "headline"
     if len(specific) > 1:
         return "", "ambiguous"
