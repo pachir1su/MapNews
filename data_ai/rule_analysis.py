@@ -9,7 +9,7 @@ import re
 from search import normalize_article
 
 CATEGORIES = ("사고", "화재", "교통", "행사", "사회")
-RULE_VERSION = "regional-headline-v3"
+RULE_VERSION = "regional-headline-v4"
 
 # Explicit administrative labels. Add only verified Korean names; do not derive
 # location from arbitrary words ending in '시' (e.g. 반드시, 대학입시).
@@ -102,11 +102,48 @@ LEAD_LOCAL_PREDICATE_RX = re.compile(
     r"^(?:.{0,90}?)(?:에서|서|에|의|이|가)"
     r"[^.!?\n]{0,105}?"
     r"(?:발견|적발|발생|숨졌|추락|충돌|들이받|불이\s*났|대피|실시|개최|열렸|"
-    r"훈련|캠페인|현장\s*점검|점검|찾아|방문|선정|압수수색|확인하고\s*있)"
+    r"훈련|캠페인|현장\s*점검|점검|찾아|방문|선정|접수|신고|개청|연다|확인했|압수\s*수색|확인하고\s*있)"
 )
+# Specific headlines may describe an institution, but the ceremony takes place
+# elsewhere. A single event pin must not be pinned to an awardee's home city.
+REMOTE_CEREMONY_RX = re.compile(r"표창|수상|정부포상|상훈|시상")
+DIGEST_RX = re.compile(r"^\[[^\]]{1,30}소식\]")
+MULTISITE_REPORT_RX = re.compile(r"수능|전국.*(?:현장|점검)|복수.*(?:현장|학교)")
+CEREMONY_LEAD_RX = re.compile(r"시상식|수여식")
+QUALIFIED_SHORT_LOCALITIES = {
+    ("경남", "양산"): "경상남도 양산시",
+    ("경남", "진주"): "경상남도 진주시",
+    ("경기", "화성"): "경기도 화성시",
+    ("충남", "공주"): "충청남도 공주시",
+    ("인천", "강화"): "인천광역시 강화군",
+}
+QUALIFIED_RX = re.compile(
+    r"(?<![가-힣])(경남|경기|충남|인천)\s+"
+    r"(양산|진주|화성|공주|강화)(?=$|[^가-힣]|(?:에서|서|에)(?=$|[^가-힣]))"
+)
+
+def _qualified_places(text):
+    return [
+        (QUALIFIED_SHORT_LOCALITIES[(m.group(1), m.group(2))], m.start())
+        for m in QUALIFIED_RX.finditer(text)
+        if (m.group(1), m.group(2)) in QUALIFIED_SHORT_LOCALITIES
+    ]
+
+def _conflicting_venue(headline_region, title, lead):
+    if not (headline_region and REMOTE_CEREMONY_RX.search(title)
+            and CEREMONY_LEAD_RX.search(lead[:500])):
+        return False
+    specific = {place for place, _ in _find_places(lead[:400]) if " " in place}
+    return any(
+        place != headline_region
+        and not place.startswith(headline_region + " ")
+        and not headline_region.startswith(place + " ")
+        for place in specific
+    )
+
 LEAD_EVENT_TITLE_RX = re.compile(
     r"화재|추락|사망|음주운전|적발|사고|발견|실종|시신|수색|사건|"
-    r"구조훈련|훈련|캠페인|현장|점검|선정|개소|개최|축제|방문|현장교육|한 컷|불|거리서"
+    r"구조훈련|훈련|캠페인|현장|점검|모색|회의|선정|개소|개청|개최|축제|방문|피싱|압수수색|현장교육|한 컷|불|거리서"
 )
 
 
@@ -174,6 +211,8 @@ def locate(title, summary=""):
     """Return (coarse_region, evidence_type), never an invented event address."""
     title = str(title or "")
     body = str(summary or "")
+    if DIGEST_RX.search(title):
+        return "", "ambiguous"
     headline = title
     # A quoted name of a film must not be treated as its physical screening
     # location. Strip only when the headline AND article lead substantiate
@@ -182,13 +221,22 @@ def locate(title, summary=""):
             DATELINE_RX.sub("", body, count=1)[:260]):
         headline = MEDIA_QUOTED_TITLE_RX.sub("", headline)
     location, kind = _choose_unique(_find_places(headline))
+    lead = DATELINE_RX.sub("", body, count=1)
+    if location and _conflicting_venue(location, title, lead):
+        return "", "ambiguous"
     if location or kind == "ambiguous":
         return location, kind
     # Look for explicit local event evidence in the lead only, never treat
     # [서울=뉴시스] or other reporter datelines as event locations.
     if not (ACTIVITY_RX.search(title) or LEAD_EVENT_TITLE_RX.search(title)):
         return "", "none"
-    lead = DATELINE_RX.sub("", body, count=1)[:410]
+    # In a broad multi-school report, multiple explicit on-site locations
+    # invalidate a single-pin inference even if only one venue has a nearby verb.
+    if MULTISITE_REPORT_RX.search(title):
+        visited = {name for name, _ in _find_places(lead[:1100]) if " " in name}
+        if len(visited) > 1:
+            return "", "ambiguous"
+    lead = lead[:410]
     matched = []
     for match in TOKEN_RX.finditer(lead):
         name = match.group(1)
@@ -208,6 +256,13 @@ def locate(title, summary=""):
                 canonical += " " + district.group(1)
         if LEAD_LOCAL_PREDICATE_RX.match(lead[match.end():match.end() + 190]):
             matched.append((canonical, match.start()))
+    # Qualified place pairs rescue noun-like short names only when the
+    # explicit administrative province supports a single concrete locality.
+    if not matched:
+        for name, pos in _qualified_places(lead):
+            tail = lead[pos + 2:pos + 170]
+            if re.search(r"모여|모였|열렸|개최|진행|서|에서|에", tail):
+                matched.append((name, pos))
     inferred, kind = _choose_unique(matched)
     return inferred, "lead-event" if inferred else kind
 
