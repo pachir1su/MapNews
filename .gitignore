@@ -15,3 +15,8 @@ map_visualization/.geocode_cache.json
 map_visualization/news_map.html
 data_ai/results_ai.json
 data_ai/results_real.json
+
+# Transaction logs, lockfiles and output-checksum manifests
+map_visualization/.*.lock
+map_visualization/.*.pending-transaction.json
+map_visualization/*.manifest.json
