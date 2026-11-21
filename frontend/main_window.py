@@ -346,7 +346,8 @@ class MainWindow(QMainWindow):
         self.region.blockSignals(True)
         self.region.clear()
         self.region.addItem("전체 지역", "")
-        for region in sorted({item.location.split()[0] for item in batch.items}):
+        for region in sorted({parts[0] for item in batch.items
+                              if (parts := item.location.split())}):
             self.region.addItem(region, region)
         index = self.region.findData(selected_region)
         self.region.setCurrentIndex(max(0, index))

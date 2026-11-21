@@ -33,7 +33,7 @@ class LoadWorker(QThread):
                 elif isinstance(error, PermissionError):
                     message = '이 파일을 읽을 권한이 없어요.'
                 elif isinstance(error, ValueError):
-                    message = 'JSON 배열 형식과 파일 크기를 확인해 주세요. 최대 8 MiB·10,000건입니다.'
+                    message = 'JSON 배열 형식과 파일 크기를 확인해 주세요. 최대 32 MiB·10,000건입니다.'
                 else:
                     message = '뉴스를 불러오지 못했어요. 다시 시도해 주세요.'
                 self.failed.emit(message)
