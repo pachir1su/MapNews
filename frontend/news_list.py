@@ -6,15 +6,40 @@ from .themes import tokens
 from .icons import category_icon
 
 ITEM_ROLE = Qt.UserRole + 1
+PAGE_SIZE = 60  # Only expose initial cards; QListView requests more on scroll.
+
 
 
 class NewsListModel(QAbstractListModel):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.items = []
+        self._loaded_count = 0
 
     def rowCount(self, parent=QModelIndex()):
-        return 0 if parent.isValid() else len(self.items)
+        return 0 if parent.isValid() else self._loaded_count
+
+    def canFetchMore(self, parent=QModelIndex()):
+        return not parent.isValid() and self._loaded_count < len(self.items)
+
+    def fetchMore(self, parent=QModelIndex()):
+        if parent.isValid() or not self.canFetchMore(parent):
+            return
+        first = self._loaded_count
+        last = min(first + PAGE_SIZE, len(self.items)) - 1
+        if last < first:
+            return
+        self.beginInsertRows(QModelIndex(), first, last)
+        self._loaded_count = last + 1
+        self.endInsertRows()
+
+    def ensure_row(self, row):
+        """Expose a selected map marker row even if not yet scrolled into view."""
+        if not isinstance(row, int) or row < 0 or row >= len(self.items):
+            return False
+        while self._loaded_count <= row:
+            self.fetchMore()
+        return True
 
     def data(self, index, role=Qt.DisplayRole):
         if not index.isValid() or not 0 <= index.row() < len(self.items):
@@ -31,6 +56,7 @@ class NewsListModel(QAbstractListModel):
     def replace(self, items):
         self.beginResetModel()
         self.items = list(items)
+        self._loaded_count = min(PAGE_SIZE, len(self.items))
         self.endResetModel()
 
 
