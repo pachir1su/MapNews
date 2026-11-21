@@ -85,7 +85,7 @@ def _backup(path):
     destination = _write_temp(path.parent, b"")
     try:
         shutil.copyfile(path, destination)
-        with destination.open("rb") as stream:
+        with destination.open("r+b") as stream:
             os.fsync(stream.fileno())
     except BaseException:
         destination.unlink(missing_ok=True)

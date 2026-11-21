@@ -172,7 +172,9 @@ def main(argv=None):
         restored = recover_pair(args.analysis_output, args.map_output)
         if restored:
             print("중단된 이전 실행의 분석·지도 파일을 함께 복구했습니다.")
-        _execute_pipeline(args)
+        exit_code = _execute_pipeline(args)
+        if exit_code:
+            return exit_code
     if args.gui:
         if not verify_pair(args.analysis_output, args.map_output):
             raise RuntimeError("분석·지도 파일의 동일 실행 스냅샷 검증에 실패했습니다.")
