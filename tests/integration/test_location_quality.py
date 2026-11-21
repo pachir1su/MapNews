@@ -273,3 +273,22 @@ def test_multiple_venue_story_does_not_create_exact_incident_pin():
     title = "성남시, 대통령 표창 수상"
     summary = "[성남=뉴시스] 기자 = 경기 성남시는 서울 강남구에서 열린 시상식에서 표창을 받았다."
     assert locate(title, summary) == ("", "ambiguous")
+
+
+def test_curated_real_article_locations_have_unique_evidence():
+    """Human-reviewed cases, not a statistical accuracy estimate."""
+    from data_ai.location_gold import GOLD
+    from search import load_archive
+    from data_ai.rule_analysis import locate
+    from pathlib import Path
+    archive = Path("news_results.json")
+    if not archive.is_file():
+        pytest.skip("Committed source archive unavailable")
+    articles = load_archive(archive)
+    for substring, expected, reason in GOLD:
+        found = [a for a in articles if substring in a["title"]]
+        assert len(found) == 1, f"Gold headline not unique: {substring!r}: {len(found)}"
+        actual, _ = locate(found[0]["title"], found[0].get("summary", ""))
+        assert actual == expected, (
+            f"{substring!r}: {reason}; expected {expected!r}, got {actual!r}"
+        )
