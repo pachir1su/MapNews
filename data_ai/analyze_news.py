@@ -82,11 +82,12 @@ def ask_gemini(prompt):
                 return value if isinstance(value, str) and value.strip() else None
             except Exception as exc:
                 # Do not log the full request/credential-bearing exception.
-                code = str(getattr(exc, "code", getattr(exc, "status_code", "")) or "")
-                if not code:
-                    message = str(exc)
-                    code = next((c for c in ("401", "403", "404", "429", "502", "503", "504")
-                                 if c in message), "")
+                code_parts = (str(getattr(exc, "code", "") or ""),
+                              str(getattr(exc, "status_code", "") or ""),
+                              str(exc))
+                code = next((c for c in ("401", "403", "404", "429", "502", "503", "504")
+                             if any(re.search(r"\\b" + c + r"\\b", p)
+                                    for p in code_parts)), "")
                 print(f"Gemini {type(exc).__name__} (status={code or 'unknown'})")
                 if code in {"401", "403", "429"}:
                     return None
@@ -173,33 +174,35 @@ def is_valid_result(item):
 
 
 def load_existing(path, source):
-    """이미 분석한 결과를 불러와요. 파일이 깨졌으면 덮어쓰지 않도록 멈춰요."""
+    """Fail closed on corrupt/partial output: never silently discard old rows."""
     if not os.path.exists(path):
         return []
     try:
-        with open(path, encoding="utf-8") as f:
-            data = json.load(f)
+        with Path(path).open("rb") as stream:
+            raw = stream.read(32 * 1024 * 1024 + 1)
+        if len(raw) > 32 * 1024 * 1024:
+            raise ValueError("기존 분석 결과 파일이 32 MiB를 초과했습니다.")
+        data = json.loads(raw.decode("utf-8-sig"))
         if not isinstance(data, list):
-            raise ValueError("최상위가 리스트가 아니에요")
-    except (OSError, ValueError) as e:
-        raise SystemExit(
-            f"{path} 파일을 읽지 못했어요({e}).\n"
-            f"덮어쓰지 않도록 멈출게요. 파일 이름을 바꿔 두고 다시 실행해 주세요."
-        )
+            raise ValueError("기존 AI 결과는 JSON 배열이어야 합니다.")
+    except (OSError, ValueError, UnicodeError) as exc:
+        raise ValueError(
+            f"기존 AI 결과를 안전하게 읽을 수 없어 덮어쓰지 않습니다: {path} "
+            f"({type(exc).__name__})"
+        ) from exc
 
-    results = []
-    seen = set()
-    for item in data:
+    results, seen = [], set()
+    for index, item in enumerate(data):
         if not is_valid_result(item):
-            continue
-        item["id"] = str(item["id"]).strip()     # id 자료형 통일(글자)
+            raise ValueError(f"기존 AI 결과의 {index + 1}행이 불완전하여 파일을 보호합니다.")
+        item = dict(item)
+        item["id"] = str(item["id"]).strip()
         if item["id"] in seen:
-            continue
+            raise ValueError(f"기존 AI 결과에 중복 ID가 있어 덮어쓰지 않습니다: {item['id']}")
         seen.add(item["id"])
         item.setdefault("source", source)
         results.append(item)
     return results
-
 
 def save_json_safely(path, data):
     """Unique temporary JSON + fsync + rename, with cleanup on every failure."""

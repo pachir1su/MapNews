@@ -158,3 +158,39 @@ def test_analyzer_limits_input_count_and_type(tmp_path):
     path.write_text("[] " + " " * (32*1024*1024), encoding="utf-8")
     with pytest.raises(ValueError, match="32 MiB"):
         ai._read_input(path)
+
+
+def test_corrupt_existing_ai_output_is_not_automatically_replaced(tmp_path):
+    output = tmp_path / "ai_results.json"
+    original = [{"id":"ok", "title":"뉴스", "category":"사회",
+                 "location":"", "summary":"정상"},
+                {"id":"broken"}]
+    output.write_text(json.dumps(original), encoding="utf-8")
+    before = output.read_bytes()
+    with pytest.raises(ValueError, match="불완전"):
+        ai.load_existing(output, "real")
+    assert output.read_bytes() == before
+
+
+def test_ai_result_duplicate_id_fails_closed(tmp_path):
+    output = tmp_path / "ai_results.json"
+    row = {"id":"news-1", "title":"뉴스", "category":"사회",
+           "location":"", "summary":"정상"}
+    output.write_text(json.dumps([row,row]), encoding="utf-8")
+    with pytest.raises(ValueError, match="중복 ID"):
+        ai.load_existing(output, "real")
+
+
+def test_queue_does_not_requeue_previous_result_after_crash(tmp_path, monkeypatch):
+    articles = [article(0)]
+    input_file, output, queue_path = (
+        tmp_path/"input.json", tmp_path/"result.json", tmp_path/"queue.json")
+    input_file.write_text(json.dumps(articles), encoding="utf-8")
+    record = dict(articles[0], category="사회", location="",
+                  summary="Gemini 완료", analysis_status="gemini")
+    output.write_text(json.dumps([record]), encoding="utf-8")
+    q.write_queue(queue_path, q.rebuild_queue(articles, []))
+    monkeypatch.setattr(ai, "analyze_batch",
+                        lambda *a: (_ for _ in ()).throw(AssertionError("duplicate call")))
+    ai._run_analysis(input_file, output, queue_path, "real")
+    assert q.read_queue(queue_path)[0]["status"] == "completed"
