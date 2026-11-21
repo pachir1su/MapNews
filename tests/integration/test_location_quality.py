@@ -223,3 +223,72 @@ def test_media_title_does_not_disable_unquoted_local_place():
 def test_verified_body_event_extraction_more_real_cases(headline, summary, expected):
     assert locate(headline, summary)[0] == expected
 
+
+
+@pytest.mark.parametrize("headline,lead,expected,evidence", [
+    (
+        "성남시, 탄소중립 생활실천 대통령 표창…자원순환가게 운영 성과",
+        "[성남=뉴시스] 기자 = 경기 성남시가 서울 강남구 가빈아트홀에서 열린 "
+        "시상식에서 대통령 기관 표창을 수상했다.",
+        "", "ambiguous",
+    ),
+    (
+        '"하루 만에 정한 대책 의구심"…AI 부정 우려 속 막판 점검[2027 수능]',
+        "[서울=뉴시스] 기자 = 수험생들이 시험장을 찾았다. "
+        "이날 오후 서울 은평구 은평고에는 수험생이 모였다. "
+        "오후 3시께 서울 종로구 중앙고에도 시험장을 미리 확인하려는 수험생들이 찾아왔다.",
+        "", "ambiguous",
+    ),
+    (
+        "전국 지방의회, 양산서 자치분권 해법 모색",
+        "[양산=뉴시스] 기자 = 전국 지방의회 의장들이 경남 양산에 모여 "
+        "지방의회법 제정 방향을 논의했다. 양산 통도사에서 회의를 개최했다.",
+        "경상남도 양산시", "lead-event",
+    ),
+    (
+        '"혹시 통화 중인가요?"…신임 경찰관, 기지로 피싱 피해 막아',
+        "[청주=뉴시스] 기자 = 18일 충북경찰청에 따르면 "
+        "청주시 흥덕구에서 신고가 접수돼 경찰이 출동했다.",
+        "충청북도 청주시 흥덕구", "lead-event",
+    ),
+    (
+        "수능 시험장 안내[오늘의 한 컷]",
+        "[대구=뉴시스] 기자 = 18일 대구 중구 학교에서 수험생이 "
+        "시험 안내문을 확인했다.",
+        "대구광역시 중구", "lead-event",
+    ),
+    (
+        "반드시 예산을 강화해야 한다",
+        "청년들의 지원금은 예산 확보가 필요하다고 밝혔다.",
+        "", "none",
+    ),
+])
+def test_evidence_review_of_real_2026_local_cases(headline, lead, expected, evidence):
+    from data_ai.rule_analysis import locate
+    assert locate(headline, lead) == (expected, evidence)
+
+
+def test_multiple_venue_story_does_not_create_exact_incident_pin():
+    from data_ai.rule_analysis import locate
+    title = "성남시, 대통령 표창 수상"
+    summary = "[성남=뉴시스] 기자 = 경기 성남시는 서울 강남구에서 열린 시상식에서 표창을 받았다."
+    assert locate(title, summary) == ("", "ambiguous")
+
+
+def test_curated_real_article_locations_have_unique_evidence():
+    """Human-reviewed cases, not a statistical accuracy estimate."""
+    from data_ai.location_gold import GOLD
+    from search import load_archive
+    from data_ai.rule_analysis import locate
+    from pathlib import Path
+    archive = Path("news_results.json")
+    if not archive.is_file():
+        pytest.skip("Committed source archive unavailable")
+    articles = load_archive(archive)
+    for substring, expected, reason in GOLD:
+        found = [a for a in articles if substring in a["title"]]
+        assert len(found) == 1, f"Gold headline not unique: {substring!r}: {len(found)}"
+        actual, _ = locate(found[0]["title"], found[0].get("summary", ""))
+        assert actual == expected, (
+            f"{substring!r}: {reason}; expected {expected!r}, got {actual!r}"
+        )
