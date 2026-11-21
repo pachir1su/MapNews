@@ -35,13 +35,14 @@ def output_lock(map_path):
     with lock_path.open("a+b") as stream:
         if os.name == "nt":
             import msvcrt
-            stream.seek(0)
-            if not stream.read(1):
-                stream.seek(0)
-                stream.write(b"0")
-                stream.flush()
-            stream.seek(0)
             try:
+                # Windows may forbid even reading an already locked byte.
+                stream.seek(0)
+                if not stream.read(1):
+                    stream.seek(0)
+                    stream.write(b"0")
+                    stream.flush()
+                stream.seek(0)
                 msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
             except OSError as exc:
                 raise RuntimeError("다른 MapNews 실행이 지도 결과를 갱신하고 있습니다.") from exc
