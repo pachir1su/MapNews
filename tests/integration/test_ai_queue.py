@@ -65,7 +65,7 @@ def test_queue_schema_corruption_fails_closed(tmp_path):
     f.write_text("truncated{", encoding="utf-8")
     with pytest.raises(json.JSONDecodeError):
         q.read_queue(f)
-    with pytest.raises(ValueError, match="정수"):
+    with pytest.raises(ValueError, match="유효하지"):
         q.select_ready([], -1)
 
 

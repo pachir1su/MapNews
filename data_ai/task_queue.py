@@ -116,7 +116,7 @@ def rebuild_queue(articles, results, previous=()):
 
 def select_ready(queue, limit, *, now=None):
     """Deterministic, newest-first, bounded selection; delayed jobs do not block."""
-    if not isinstance(limit, int) or not 0 <= limit <= MAX_ARTICLES:
+    if type(limit) is not int or not 0 <= limit <= MAX_ARTICLES:
         raise ValueError("Gemini 처리 기사 수가 유효하지 않습니다.")
     now = now or now_utc()
     ready = [
