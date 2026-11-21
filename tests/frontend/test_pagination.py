@@ -1,5 +1,4 @@
 """Incremental loading: 10k saved rows need not create 10k Qt model rows."""
-from PySide6.QtCore import QModelIndex
 from frontend.news_list import NewsListModel, PAGE_SIZE, ITEM_ROLE
 from frontend.models import parse_news
 from frontend.main_window import MainWindow
