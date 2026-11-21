@@ -102,7 +102,7 @@ LEAD_LOCAL_PREDICATE_RX = re.compile(
     r"^(?:.{0,90}?)(?:에서|서|에|의|이|가)"
     r"[^.!?\n]{0,105}?"
     r"(?:발견|적발|발생|숨졌|추락|충돌|들이받|불이\s*났|대피|실시|개최|열렸|"
-    r"훈련|캠페인|현장\s*점검|점검|찾아|방문|선정|접수|신고|개청|연다|압수수색|확인하고\s*있)"
+    r"훈련|캠페인|현장\s*점검|점검|찾아|방문|선정|접수|신고|개청|연다|확인했|압수수색|확인하고\s*있)"
 )
 # Specific headlines may describe an institution, but the ceremony takes place
 # elsewhere. A single event pin must not be pinned to an awardee's home city.
@@ -142,7 +142,7 @@ def _conflicting_venue(headline_region, title, lead):
 
 LEAD_EVENT_TITLE_RX = re.compile(
     r"화재|추락|사망|음주운전|적발|사고|발견|실종|시신|수색|사건|"
-    r"구조훈련|훈련|캠페인|현장|점검|선정|개소|개청|개최|축제|방문|피싱|현장교육|한 컷|불|거리서"
+    r"구조훈련|훈련|캠페인|현장|점검|모색|회의|선정|개소|개청|개최|축제|방문|피싱|현장교육|한 컷|불|거리서"
 )
 
 
