@@ -75,7 +75,7 @@ TOKEN_RX = re.compile(
     "|".join(re.escape(name) for name in sorted(ALIASES, key=len, reverse=True)) +
     r")(?=$|[^가-힣]|(?:에서|으로|은|는|이|가|을|를|에|의|서|와|과|도|만|로|엔)(?=$|[^가-힣]))"
 )
-DISTRICT_RX = re.compile(r"^\s+([가-힣]{2,8}구)(?=$|[^가-힣]|[은는이가을를에의서])")
+DISTRICT_RX = re.compile(r"^\s+([가-힣]{1,8}구)(?=$|[^가-힣]|[은는이가을를에의서])")
 SHORT_DISTRICTS = {"서구", "동구", "중구", "남구", "북구", "강서구"}
 CITY_DISTRICTS = {
     "충청남도 천안시": {"서북구", "동남구"},
