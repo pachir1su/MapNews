@@ -2,27 +2,184 @@
 
 PySide6 기반 지도 뉴스 탐색 프로그램. 뉴스를 RSS로 수집하고, 기사 지역/분류를 분석한 뒤 지도와 목록에 보여줍니다.
 
-## 실행 (Python 3.11 또는 3.12)
+## 프로그램 실행 방법
 
-Windows PowerShell:
+### 1. 준비물
 
-    py -3.12 -m venv .venv
-    .\.venv\Scripts\python.exe -m pip install -r requirements-integration.txt
-    .\.venv\Scripts\python.exe run_pipeline.py --gui
+- Python 3.11 또는 3.12 ([다운로드](https://www.python.org/downloads/))
+- Git ([다운로드](https://git-scm.com/downloads)) 또는 GitHub의 Code > Download ZIP
+- 인터넷 연결: 최초 패키지 설치, RSS 수집, 온라인 지도 타일에 필요합니다. 설치 후에는 저장된 기사와 오프라인 지도로 실행할 수 있습니다.
+- 기본 실행에는 Gemini API 키가 필요 없습니다.
 
-Linux:
+### 2. Windows (PowerShell)
 
-    python3 -m venv .venv
-    .venv/bin/python -m pip install -r requirements-integration.txt
-    .venv/bin/python run_pipeline.py --gui
+아래 명령을 한 줄씩 실행합니다. 명령어는 MapNews 저장소의 최상위 폴더에서 실행합니다.
 
-- 기본값: 뉴시스 RSS 수집 → 기사 보관 → 로컬 규칙 기반 분류/지역 추출 → 기존 좌표 캐시만 사용 → GUI. Gemini API 키가 필요 없습니다.
-- 실제 데이터 갱신 없이 저장된 기사를 시연: python run_pipeline.py --skip-fetch --gui
-- 지도 타일 네트워크 없이 시작: python run_pipeline.py --skip-fetch --gui --offline-map
-- 새로운 지역의 Nominatim 좌표 조회를 명시적으로 허용: python run_pipeline.py --geocode --gui. 지명 대표 좌표는 사건의 실제 주소가 아닙니다. 대량 실행 시 공용 지오코딩 서비스 정책을 준수하세요.
-- Gemini 선택적 사용: pip install -r requirements-ai.txt 후 GEMINI_API_KEY 환경변수 설정, python run_pipeline.py --with-ai --max-ai-articles 30 --gui
-- GUI만 실행(기본 내장 시연용 20건): python -m frontend
-- 별도 실기사 JSON 열기: python -m frontend --json map_visualization/map_results.json
+**① Python과 Git 설치 확인**
+
+~~~powershell
+py -3.12 --version
+git --version
+~~~
+
+Python 3.11만 설치되어 있다면 아래 명령의 -3.12를 -3.11로 바꿉니다.
+
+**② 소스 코드 다운로드**
+
+~~~powershell
+git clone https://github.com/pachir1su/MapNews.git
+cd MapNews
+~~~
+
+ZIP으로 받았다면 압축을 풀고 run_pipeline.py가 있는 폴더를 PowerShell에서 열면 됩니다.
+
+**③ 가상환경 생성**
+
+~~~powershell
+py -3.12 -m venv .venv
+~~~
+
+가상환경을 직접 활성화하지 않고 가상환경의 Python을 사용하므로 PowerShell 실행 정책을 변경할 필요가 없습니다.
+
+**④ 필요한 라이브러리 설치**
+
+~~~powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements-integration.txt
+~~~
+
+**⑤ 프로그램 실행**
+
+~~~powershell
+.\.venv\Scripts\python.exe run_pipeline.py --gui
+~~~
+
+뉴스 수집, 지역 및 분류 분석, 기존 좌표 캐시 적용을 거쳐 GUI가 열립니다. 뉴스 수집에 실패하면 정상적인 기존 데이터를 보호하며 실행이 중단될 수 있습니다.
+
+**⑥ 저장된 기사로 실행 (네트워크 장애 시 권장)**
+
+~~~powershell
+.\.venv\Scripts\python.exe run_pipeline.py --skip-fetch --gui --offline-map
+~~~
+
+새 뉴스 수집 및 온라인 지도 타일 요청 없이 저장된 news_results.json을 분석해 표시합니다. 위치 근거가 없거나 좌표가 없는 기사는 목록에 남습니다.
+
+### 3. Linux
+
+**① Python과 Git 버전 확인 및 다운로드**
+
+~~~bash
+python3 --version
+git --version
+git clone https://github.com/pachir1su/MapNews.git
+cd MapNews
+~~~
+
+python3가 3.11 또는 3.12인지 확인합니다. venv가 없다면 사용하는 배포판의 Python venv 패키지를 설치합니다. GUI 실행에는 그래픽 데스크톱 및 Qt가 요구하는 시스템 라이브러리가 필요합니다.
+
+**② 가상환경 생성 및 의존성 설치**
+
+~~~bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements-integration.txt
+~~~
+
+**③ 실행**
+
+~~~bash
+.venv/bin/python run_pipeline.py --gui
+~~~
+
+저장된 기사 및 오프라인 지도:
+
+~~~bash
+.venv/bin/python run_pipeline.py --skip-fetch --gui --offline-map
+~~~
+
+### 4. 실행 방식 선택
+
+아래 명령은 Windows PowerShell 기준입니다. Linux에서는 .\.venv\Scripts\python.exe 대신 .venv/bin/python을 사용합니다.
+
+| 실행 목적 | 명령어 |
+|---|---|
+| 새 기사 수집 및 GUI | `.\.venv\Scripts\python.exe run_pipeline.py --gui` |
+| 저장 기사 및 온라인 지도 | `.\.venv\Scripts\python.exe run_pipeline.py --skip-fetch --gui` |
+| 저장 기사 및 오프라인 지도 | `.\.venv\Scripts\python.exe run_pipeline.py --skip-fetch --gui --offline-map` |
+| GUI만 시연 (가상 기사 20건) | `.\.venv\Scripts\python.exe -m frontend` |
+| GUI만 오프라인 시연 | `.\.venv\Scripts\python.exe -m frontend --offline` |
+| 기존 지도 결과 JSON 직접 열기 | `.\.venv\Scripts\python.exe -m frontend --json map_visualization/map_results.json` |
+| 분석 및 좌표 변환만 수행 | `.\.venv\Scripts\python.exe run_pipeline.py --skip-fetch` |
+
+기존 지도 결과 JSON은 파이프라인이 정상적으로 완료되어 해당 파일이 생성된 경우에만 직접 열 수 있습니다. 시연용 가상 기사에는 원문 링크가 제공되지 않습니다.
+
+### 5. 선택 기능: 새로운 지역 좌표 조회
+
+~~~powershell
+.\.venv\Scripts\python.exe run_pipeline.py --geocode --gui
+~~~
+
+Nominatim에 네트워크 요청을 보내는 기능입니다. 기본 실행에서는 사용하지 않습니다. 공용 지오코딩 서비스의 사용 정책을 준수해야 하며, 지명의 대표 좌표는 실제 사건의 주소가 아닙니다.
+
+### 6. 선택 기능: Gemini AI 분석
+
+**① AI 관련 의존성 설치**
+
+~~~powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements-ai.txt
+~~~
+
+**② 현재 PowerShell 세션에 API 키 설정**
+
+~~~powershell
+$env:GEMINI_API_KEY = Read-Host "Gemini API key"
+~~~
+
+키를 소스 코드, README, 커밋 또는 공개 로그에 기록하지 마세요.
+
+**③ AI 분석을 포함하여 실행**
+
+~~~powershell
+.\.venv\Scripts\python.exe run_pipeline.py --with-ai --max-ai-articles 30 --gui
+~~~
+
+Linux에서는 터미널에서 키를 입력한 뒤 실행합니다.
+
+~~~bash
+.venv/bin/python -m pip install -r requirements-ai.txt
+read -rs GEMINI_API_KEY
+export GEMINI_API_KEY
+.venv/bin/python run_pipeline.py --with-ai --max-ai-articles 30 --gui
+~~~
+
+API 호출에는 인터넷 연결이 필요하며 사용량 제한이나 비용이 발생할 수 있습니다. 기본 실행은 로컬 규칙 기반 분석이므로 키 없이 사용할 수 있습니다.
+
+### 7. 프로그램 사용 방법
+
+1. 목록의 기사 또는 지도 마커를 선택하면 기사 상세 정보가 열립니다.
+2. 검색창에 키워드를 입력하거나 지역과 카테고리 필터를 적용합니다.
+3. 지도 확대 및 축소, 전국 보기, 검색 결과에 맞춘 지도 이동을 이용합니다.
+4. 기사 상세에서 뒤로 가기 또는 Esc를 누르면 목록으로 돌아갑니다.
+5. 실제 기사에는 유효한 원문 링크가 있는 경우 브라우저에서 원문을 열 수 있습니다.
+6. 종료 후 다시 실행할 때는 프로젝트 폴더에서 원하는 실행 명령만 입력하면 됩니다. 매번 가상환경을 만들거나 라이브러리를 설치할 필요는 없습니다.
+
+### 8. 실행 오류 해결
+
+| 증상 | 확인할 사항 |
+|---|---|
+| py 또는 python3 명령을 찾을 수 없음 | Python 설치 및 버전 확인, 터미널 재시작 |
+| run_pipeline.py 또는 requirements 파일을 찾을 수 없음 | 저장소 최상위 폴더인지 확인 |
+| ModuleNotFoundError | 가상환경의 Python으로 requirements-integration.txt 재설치 |
+| RSS 수집 실패 | 인터넷 연결 확인 또는 --skip-fetch로 기존 기사 사용 |
+| 지도 타일이 표시되지 않음 | --offline-map 또는 GUI 단독 --offline으로 시작 |
+| JSON 파일이 없거나 유효하지 않음 | 정상 기사 원본 파일 확인 후 파이프라인 재실행. 기존 정상 파일을 임의로 삭제하지 않음 |
+| Gemini 인증 및 할당량 오류 | API 키와 사용량 확인, --with-ai 없이 기본 실행 |
+| 지도에 핀이 적음 | 지역 근거 및 좌표 캐시 유무 확인. 좌표 없는 기사는 목록에서 확인 |
+
+명령행 도움말 확인:
+
+~~~powershell
+.\.venv\Scripts\python.exe run_pipeline.py --help
+.\.venv\Scripts\python.exe -m frontend --help
+~~~
 
 ## 데이터 경로와 제한
 
